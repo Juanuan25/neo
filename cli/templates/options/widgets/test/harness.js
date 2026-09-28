@@ -305,6 +305,16 @@ function makeForm(opts) {
       const w = NeoWidgets && NeoWidgets.get(this.optUi(name)?.widget);
       if (w && typeof w.onRevert === 'function') w.onRevert.call(this, name);
     },
+    widgetValidationErrors() {
+      const out = [];
+      Object.keys(this.optionsByName || {}).forEach((name) => {
+        const w = NeoWidgets && NeoWidgets.get(this.optUi(name)?.widget);
+        if (w && typeof w.validate === 'function') {
+          (w.validate.call(this, name) || []).forEach((msg) => out.push(msg));
+        }
+      });
+      return out;
+    },
     collectSave() {
       const toSave = {};
       Object.keys(this.values || {}).forEach((k) => {

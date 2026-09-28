@@ -106,8 +106,9 @@ Extract prunes orphan keys from `current`; the form re-syncs when the source lis
 | `pluginList` | listOf flake URLs with add/remove cards and per-remove uninstall confirm (`core.plugins`) |
 | `primaryItemList` | listOf scalars; first entry is the primary (badge from `entryLabel`, e.g. Hermes `telegramAllowedUserId` home channel) |
 | `providerAuth` | submodule of provider + API key and/or OAuth login + model (Hermes `llm`). Catalog rows declare `hasApiKey` / `hasOauth` / `oauthFlow` / `needsBaseUrl`; child option descriptions render as ⓘ on each input; `ui.oauth.script` runs status/login/refresh |
+| `proxyRouteList` | attrsOf str of public domain → plain `http://` upstream (SWAG `proxyPass`). Route cards `https://domain → TLS at SWAG → upstream` with add/remove, inline checks (hostname only, `http://host[:port]`, duplicates = error; `https://`, path, loopback = warning; no port = hint) and one-click fixes. Errors block save through the optional widget `validate(name) → string[]` hook |
 
-Implementations: `cli/templates/options/widgets/<name>.html.hbs` + `<name>.js` (registers on `NeoWidgets`) + `<name>.test.js`. `option_form.js` mixes in registered widgets and dispatches init/save/reset on `ui.widget` only. Dispatch in `attrs_of.html.hbs` / field templates on `ui.widget`, not on option names. Run `just test-widgets`.
+Implementations: `cli/templates/options/widgets/<name>.html.hbs` + `<name>.js` (registers on `NeoWidgets`) + `<name>.test.js`. `option_form.js` mixes in registered widgets and dispatches init/save/reset on `ui.widget` only; a widget may also define `validate(name)` returning error strings, and `save()` refuses (toast + error flash) while any remain. Dispatch in `attrs_of.html.hbs` / field templates on `ui.widget`, not on option names. Run `just test-widgets`.
 
 ### Adding a new special UI (checklist)
 
@@ -117,7 +118,7 @@ Implementations: `cli/templates/options/widgets/<name>.html.hbs` + `<name>.js` (
 4. If you need a new composite editor: one Handlebars partial + one JS module under `options/widgets/` that `NeoWidgets.register`s by `ui.widget` name, a colocated `*.test.js`, and a `<script>` in `configuration.html.hbs` after `registry.js` — no `if (name === "access")`.
 5. Document the widget/provider in this section.
 
-Reference consumers: `nix/services/tinyauth/option.nix` (`access` + `ui.choices = "authApps"`); `nix/services/hermes/option.nix` (`telegramAllowedUserId` + `primaryItemList`).
+Reference consumers: `nix/services/tinyauth/option.nix` (`access` + `ui.choices = "authApps"`); `nix/services/hermes/option.nix` (`telegramAllowedUserId` + `primaryItemList`); `nix/services/swag/option.nix` (`proxyPass` + `proxyRouteList`).
 
 ### Loading feedback
 

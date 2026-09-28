@@ -29,6 +29,11 @@
                 default = {};
                 description = "Map of extra domains to http upstream URLs (plain http backends) to create direct proxy server blocks for (e.g. { \"octo.example.com\" = \"http://192.168.178.42:8123\"; }). SWAG handles TLS termination; no need if the target already speaks HTTPS.";
                 rank = 30;
+                ui = lib.neo.ui.mkUi {
+                  label = "Extra domain routes";
+                  widget = "proxyRouteList";
+                  entryLabel = "Route";
+                };
               };
               onlySubdomains = mkOption {
                 type = types.bool;

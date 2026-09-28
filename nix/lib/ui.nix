@@ -22,6 +22,10 @@
 #     oauthFlow / needsBaseUrl. Child option descriptions render as ⓘ on
 #     each input (from type.fields). OAuth status/login/refresh goes
 #     through ui.oauth.script.
+#   proxyRouteList — attrsOf str mapping a public domain to a plain-http
+#     upstream (swag.proxyPass). Route cards (https://domain → TLS at SWAG →
+#     upstream) with inline hostname / http:// URL checks; rows with errors
+#     block save via widget.validate. entryLabel / emptyHint are optional.
 #
 # Browser JS for each widget is colocated with the Handlebars template
 # (`cli/templates/options/widgets/<name>.js`) and registers on NeoWidgets.

@@ -266,6 +266,21 @@ function optionForm() {
       });
     },
 
+    /**
+     * Save blockers from widgets that implement validate(optionName) → string[].
+     * Widgets flag the offending rows inline; save() refuses while any remain.
+     */
+    widgetValidationErrors() {
+      const out = [];
+      Object.keys(this.optionsByName || {}).forEach((name) => {
+        const w = neoWidget(this.optUi(name)?.widget);
+        if (w && typeof w.validate === 'function') {
+          (w.validate.call(this, name) || []).forEach((msg) => out.push(msg));
+        }
+      });
+      return out;
+    },
+
     // ── Pane chrome: tabs, sections, visibility, summaries ───────────
 
     _prefKey(kind) {
@@ -758,6 +773,16 @@ function optionForm() {
           this.syncKeysFromOption(name);
         }
       });
+
+      const invalid = this.widgetValidationErrors();
+      if (invalid.length) {
+        this.saveFlash = 'err';
+        this.saveError = invalid[0] + (invalid.length > 1 ? ` (+${invalid.length - 1} more)` : '');
+        if (typeof window.neoToast === 'function') {
+          window.neoToast(('Fix before saving — ' + this.saveError).slice(0, 240), 'error');
+        }
+        return;
+      }
 
       const toSave = {};
       Object.keys(this.values || {}).forEach((k) => {

@@ -28,9 +28,11 @@
           {{else}}
             {{> options/list_of}}
           {{/if}}{{/if}}
+        {{else}}{{#if (eq ui.widget "proxyRouteList")}}
+          {{> options/widgets/proxy_route_list}}
         {{else}}
           {{> options/attrs_of}}
-        {{/if}}
+        {{/if}}{{/if}}
       </div>
     </div>
   {{else}}

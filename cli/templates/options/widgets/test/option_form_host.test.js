@@ -19,6 +19,7 @@ function loadWidgets() {
     'plugin_list.js',
     'primary_item_list.js',
     'provider_auth.js',
+    'proxy_route_list.js',
   ];
   for (const f of files) {
     const p = path.join(widgetsDir, f);
@@ -61,6 +62,7 @@ test('configuration.html.hbs loads registry then each widget then option_form.js
     '/static/widgets/plugin_list.js',
     '/static/widgets/primary_item_list.js',
     '/static/widgets/provider_auth.js',
+    '/static/widgets/proxy_route_list.js',
     '/static/option_form.js',
   ];
   let last = -1;
@@ -224,4 +226,58 @@ test('makeForm collectSave still matches optionForm widget dispatch', () => {
   isolated.pilSetPrimary('telegramAllowedUserId', 1);
   assert.deepEqual(isolated.values.telegramAllowedUserId, [2, 1]);
   assert.deepEqual(isolated.collectSave().telegramAllowedUserId, [2, 1]);
+});
+
+function proxyRouteForm(posts, current) {
+  const document = installGlobals({
+    fetch: async (url, init) => {
+      posts.push({ url, body: JSON.parse(init.body) });
+      return { ok: true, json: async () => ({}), text: async () => '' };
+    },
+  });
+  document.set('options-pane', {
+    dataset: { service: 'swag', saveEndpoint: '/save/swag' },
+  });
+  loadOptionForm();
+  const form = optionForm();
+  form.serviceName = 'swag';
+  form.optionsByName = {
+    proxyPass: {
+      name: 'proxyPass',
+      type: { kind: 'attrsOf', elem: { kind: 'str' } },
+      ui: { widget: 'proxyRouteList' },
+    },
+  };
+  form.values.proxyPass = form.cloneValue(current);
+  form.defaults.proxyPass = {};
+  form.originals.proxyPass = form.cloneValue(current);
+  form.initWidgets();
+  return form;
+}
+
+test('save() is blocked while a proxyRouteList row is invalid', async () => {
+  const posts = [];
+  const form = proxyRouteForm(posts, {});
+  const id = form.prlAdd('proxyPass');
+  form.prlSet('proxyPass', id, 'domain', 'https://octo.example.com');
+  form.prlSet('proxyPass', id, 'upstream', 'http://192.168.1.2:8123');
+  assert.equal(form.widgetValidationErrors().length, 1);
+  await form.save();
+  assert.equal(posts.length, 0);
+  assert.equal(form.saveFlash, 'err');
+  assert.match(form.saveError, /hostname/);
+
+  form.prlSet('proxyPass', id, 'domain', 'octo.example.com');
+  await form.save();
+  assert.equal(posts.length, 1);
+  assert.deepEqual(posts[0].body.proxyPass, { 'octo.example.com': 'http://192.168.1.2:8123' });
+});
+
+test('save() omits proxyRouteList when every route was removed', async () => {
+  const posts = [];
+  const form = proxyRouteForm(posts, { 'a.example.com': 'http://10.0.0.2:80' });
+  form.prlRemove('proxyPass', form.prlRows('proxyPass')[0].id);
+  await form.save();
+  assert.equal(posts.length, 1);
+  assert.equal('proxyPass' in posts[0].body, false);
 });
