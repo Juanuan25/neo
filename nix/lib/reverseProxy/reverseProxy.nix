@@ -1,6 +1,9 @@
 # Shared reverse-proxy option types for services (subdomain, auth, custom domains).
 # Ranks are level-dependent — see nix/lib/option.nix for the service band table.
-{lib, ...}: {
+{lib, ...}: let
+  neoUi = (import ../ui.nix {inherit lib;}).libExtensions.ui.neo.ui;
+  inherit (neoUi.groups) access;
+in {
   libExtensions.reverseProxy = {
     neo = {
       mkReverseProxyOptions = {
@@ -22,17 +25,34 @@
               default = subdomain;
               description = "Subdomain for the service. Must be unique among enabled services and consist of lowercase a-z only";
             }
-            // {rank = 100;};
+            // {
+              rank = 100;
+              ui = neoUi.mkUi {
+                group = access;
+                label = "Subdomain";
+                summary = true;
+              };
+            };
 
           ingress =
             mkOption {
               type = types.listOf (types.enum ["local" "tailscale" "web"]);
               default = ["local" "tailscale" "web"];
-              description = "Where this service is reachable. local = LAN, tailscale = Tailscale tailnet, web = public HTTPS via rathole/streamproxy. Multiple may be selected. Requests from a path that is not selected are blocked. Let's Encrypt HTTP-01 on port 80 is never blocked.";
+              description = "Where this service can be opened from. Home network = your LAN, Tailscale = devices on your tailnet, Internet = public HTTPS via rathole/streamproxy. Requests from anywhere not selected are blocked (Let's Encrypt HTTP-01 on port 80 is always allowed).";
             }
             // {
               rank = 105;
-              ui = {choices = ["local" "tailscale" "web"];};
+              ui = neoUi.mkUi {
+                group = access;
+                label = "Reachable from";
+                summary = true;
+                choices = ["local" "tailscale" "web"];
+                choiceLabels = {
+                  local = "Home network";
+                  tailscale = "Tailscale";
+                  web = "Internet";
+                };
+              };
             };
 
           proxyConf = mkOption {
@@ -48,7 +68,13 @@
               default = customDomains;
               description = "Custom domains (one domain per string, e.g. example.com or www.example.com) that should resolve to this service; automatically added to SWAG for certificates and to Pi-hole for local DNS";
             }
-            // {rank = 130;};
+            // {
+              rank = 130;
+              ui = neoUi.mkUi {
+                group = access;
+                label = "Custom domains";
+              };
+            };
 
           auth =
             mkOption {
@@ -58,23 +84,38 @@
                     mkOption {
                       type = types.bool;
                       default = auth.enabled;
-                      description = "tinyauth forward auth";
+                      description = "Require a tinyauth login before anyone can open this service";
                     }
-                    // {rank = 0;};
+                    // {
+                      rank = 0;
+                      ui = neoUi.mkUi {
+                        label = "Require login";
+                        summary = true;
+                      };
+                    };
                   publicPaths =
                     mkOption {
                       type = types.listOf types.str;
                       default = auth.publicPaths;
-                      description = "Regex paths that bypass tinyauth authentication";
+                      description = "Regex paths that bypass tinyauth authentication (e.g. share links, health checks)";
                     }
-                    // {rank = 10;};
+                    // {
+                      rank = 10;
+                      ui = neoUi.mkUi {
+                        label = "Public paths";
+                        visibleWhen = "enabled";
+                      };
+                    };
                 };
               };
               default = auth;
               internal = !authAvailable;
               description = "Tinyauth forward authentication settings";
             }
-            // {rank = 120;};
+            // {
+              rank = 120;
+              ui = neoUi.mkUi {group = access;};
+            };
         };
       # Enabled services that get a SWAG subdomain (certs, DNS, proxy-conf materialization).
       # Includes swag itself for the dashboard UI at swag.<domain>.

@@ -1,12 +1,12 @@
 {{! attrsOf: scalar values or one-deep submodule entries; widgets via option.ui }}
 {{#if (eq type.elem.kind "submodule")}}
-  <div class="mt-2">
+  <div>
     {{#if (eq ui.widget "exclusiveListPair")}}
       {{> options/widgets/exclusive_list_pair}}
     {{else}}
     <template x-for="(key, idx) in attrKeys('{{name}}')" :key="key">
       <div>
-        <div class="divider my-3 text-xs text-base-content/40" x-show="idx > 0">entry</div>
+        <div class="h-2" x-show="idx > 0"></div>
 
         <div class="border border-base-300 rounded-lg p-2 sm:p-3 bg-base-100/60 space-y-2 sm:space-y-3">
           {{! Card header: named entry + remove }}
@@ -17,7 +17,7 @@
                 <span class="label-text-alt text-[10px] text-base-content/45">unique key for this entry</span>
               </label>
               <input type="text"
-                     class="input input-primary input-sm font-mono w-full max-w-md"
+                     class="input input-sm font-mono w-full max-w-md"
                      :value="key"
                      @change="renameAttrKey('{{name}}', key, $event.target.value)"
                      placeholder="e.g. home"
@@ -37,7 +37,7 @@
             {{#each type.elem.fields}}
               <div class="space-y-1">
                 <div class="flex items-center gap-2">
-                  <span class="font-mono text-xs text-base-content/70">{{name}}</span>
+                  <span class="text-xs font-medium text-base-content/70">{{label}}</span>
                   {{#if description}}
                     <div class="dropdown dropdown-right dropdown-hover">
                       <span tabindex="0" role="button" class="cursor-help text-base-content/40 text-[11px]">ⓘ</span>
@@ -56,14 +56,14 @@
                 {{/if}}
 
                 {{#if (or (eq type.kind "int") (eq type.kind "port"))}}
-                  <input type="number" class="input input-primary input-sm w-full font-mono"
+                  <input type="number" class="input input-sm w-full font-mono"
                          x-model.number="values['{{../name}}'][key]['{{name}}']"
                          {{#if type.min}}min="{{type.min}}"{{/if}}
                          {{#if type.max}}max="{{type.max}}"{{/if}}>
                 {{/if}}
 
                 {{#if (eq type.kind "float")}}
-                  <input type="number" class="input input-primary input-sm w-full font-mono" step="any"
+                  <input type="number" class="input input-sm w-full font-mono" step="any"
                          x-model.number="values['{{../name}}'][key]['{{name}}']">
                 {{/if}}
 
@@ -88,7 +88,7 @@
                     <template x-for="(nitem, nidx) in (values['{{../name}}'][key]['{{name}}'] || [])" :key="nidx">
                       <div class="flex gap-2 items-center">
                         {{#if (or (eq type.elem.kind "int") (eq type.elem.kind "port"))}}
-                          <input type="number" class="input input-primary input-sm flex-1 font-mono"
+                          <input type="number" class="input input-sm flex-1 font-mono"
                                  x-model.number="values['{{../name}}'][key]['{{name}}'][nidx]">
                         {{else}}
                           {{#if (eq type.elem.kind "bool")}}
@@ -98,26 +98,26 @@
                             </label>
                           {{else}}
                             {{#if (eq type.elem.kind "enum")}}
-                              <select class="select select-sm select-primary flex-1 font-mono"
+                              <select class="select select-sm flex-1 font-mono"
                                       x-model="values['{{../name}}'][key]['{{name}}'][nidx]">
                                 {{#each type.elem.values}}
                                   <option value="{{this}}">{{this}}</option>
                                 {{/each}}
                               </select>
                             {{else}}
-                              <input type="text" class="input input-primary input-sm flex-1 font-mono"
+                              <input type="text" class="input input-sm flex-1 font-mono"
                                      x-model="values['{{../name}}'][key]['{{name}}'][nidx]">
                             {{/if}}
                           {{/if}}
                         {{/if}}
                         <button type="button"
                                 @click="removeNestedListItem('{{../name}}', key, '{{name}}', nidx)"
-                                class="btn btn-ghost btn-xs text-error shrink-0">Remove</button>
+                                class="btn btn-ghost btn-sm btn-square shrink-0 text-base-content/50 hover:text-error" title="Remove" aria-label="Remove">✕</button>
                       </div>
                     </template>
                     <button type="button"
                             @click="addNestedListItem('{{../name}}', key, '{{name}}')"
-                            class="btn btn-outline btn-xs">+ Add</button>
+                            class="btn btn-ghost btn-xs text-primary px-1">+ Add</button>
                   </div>
                   {{/if}}
                 {{/if}}
@@ -126,9 +126,9 @@
                   <div class="pl-1 space-y-1">
                     <template x-for="(nval, nkey) in (values['{{../name}}'][key]['{{name}}'] || {})" :key="nkey">
                       <div class="flex gap-2 items-center">
-                        <input class="input input-primary input-sm w-32 font-mono" :value="nkey" disabled>
+                        <input class="input input-sm w-32 font-mono" :value="nkey" disabled>
                         {{#if (or (eq type.elem.kind "int") (eq type.elem.kind "port"))}}
-                          <input type="number" class="input input-primary input-sm flex-1 font-mono"
+                          <input type="number" class="input input-sm flex-1 font-mono"
                                  x-model.number="values['{{../name}}'][key]['{{name}}'][nkey]">
                         {{else}}
                           {{#if (eq type.elem.kind "bool")}}
@@ -137,26 +137,26 @@
                                      x-model="values['{{../name}}'][key]['{{name}}'][nkey]">
                             </label>
                           {{else}}
-                            <input type="text" class="input input-primary input-sm flex-1 font-mono"
+                            <input type="text" class="input input-sm flex-1 font-mono"
                                    x-model="values['{{../name}}'][key]['{{name}}'][nkey]">
                           {{/if}}
                         {{/if}}
                         <button type="button"
                                 @click="removeNestedAttrItem('{{../name}}', key, '{{name}}', nkey)"
-                                class="btn btn-ghost btn-xs text-error shrink-0">Remove</button>
+                                class="btn btn-ghost btn-sm btn-square shrink-0 text-base-content/50 hover:text-error" title="Remove" aria-label="Remove">✕</button>
                       </div>
                     </template>
                     <div class="flex gap-2 items-center">
-                      <input class="input input-primary input-sm w-32 font-mono" placeholder="key">
+                      <input class="input input-sm w-32 font-mono" placeholder="key">
                       <button type="button"
                               @click="addNestedAttrItem('{{../name}}', key, '{{name}}', $event.target.previousElementSibling)"
-                              class="btn btn-outline btn-xs shrink-0">+ Add</button>
+                              class="btn btn-ghost btn-sm text-primary shrink-0">+ Add</button>
                     </div>
                   </div>
                 {{/if}}
 
                 {{#if (eq type.kind "enum")}}
-                  <select class="select select-sm select-primary w-full font-mono"
+                  <select class="select select-sm w-full font-mono"
                           x-model="values['{{../name}}'][key]['{{name}}']">
                     {{#each type.values}}
                       <option value="{{this}}">{{this}}</option>
@@ -166,11 +166,11 @@
 
                 {{#if (eq type.kind "nullOr")}}
                   <div class="flex gap-2 items-center">
-                    <input type="text" class="input input-primary input-sm flex-1 font-mono"
+                    <input type="text" class="input input-sm flex-1 font-mono"
                            x-model="values['{{../name}}'][key]['{{name}}']"
                            placeholder="{{defaultDisplay}}">
                     <template x-if="resolveHelper('{{../name}}', { field: '{{name}}' })">
-                      <button type="button" class="btn btn-outline btn-xs shrink-0"
+                      <button type="button" class="btn btn-soft btn-primary btn-sm shrink-0"
                               @click="runHelper('{{../name}}', { key: key, field: '{{name}}' })"
                               :disabled="helperBusy"
                               x-text="resolveHelper('{{../name}}', { field: '{{name}}' }).label"></button>
@@ -182,11 +182,11 @@
 
                 {{#if (or (eq type.kind "str") (eq type.kind "path"))}}
                   <div class="flex gap-2 items-center">
-                    <input type="text" class="input input-primary input-sm flex-1 font-mono"
+                    <input type="text" class="input input-sm flex-1 font-mono"
                            x-model="values['{{../name}}'][key]['{{name}}']"
                            placeholder="{{defaultDisplay}}">
                     <template x-if="resolveHelper('{{../name}}', { field: '{{name}}' })">
-                      <button type="button" class="btn btn-outline btn-xs shrink-0"
+                      <button type="button" class="btn btn-soft btn-primary btn-sm shrink-0"
                               @click="runHelper('{{../name}}', { key: key, field: '{{name}}' })"
                               :disabled="helperBusy"
                               x-text="resolveHelper('{{../name}}', { field: '{{name}}' }).label"></button>
@@ -200,40 +200,39 @@
       </div>
     </template>
 
-    <div class="divider my-3 text-xs text-base-content/40"
-         x-show="attrKeys('{{name}}').length > 0"></div>
+    <p class="text-xs text-base-content/45 italic" x-show="!attrKeys('{{name}}').length">None added yet.</p>
 
-    <div class="flex gap-2 items-center mt-1">
-      <input class="input input-primary input-sm w-40 font-mono"
-             placeholder="entry name"
+    <div class="flex gap-2 items-center mt-3">
+      <input class="input input-sm w-28 sm:w-40 font-mono"
+             placeholder="new entry name"
              x-ref="newkey_{{name}}"
              @keydown.enter.prevent="addAttrItem('{{name}}', $refs['newkey_{{name}}'])"
              aria-label="New entry name">
       <button type="button"
               @click="addAttrItem('{{name}}', $refs['newkey_{{name}}'])"
-              class="btn btn-outline btn-xs shrink-0">
+              class="btn btn-ghost btn-sm text-primary shrink-0">
         + Add entry
       </button>
     </div>
     {{/if}}
   </div>
 {{else}}
-  <div class="mt-2 space-y-1">
+  <div class="space-y-1.5">
     <template x-for="(val, key) in (values['{{name}}'] || {})" :key="key">
       <div class="flex gap-2 items-center">
-        <input class="input input-primary input-sm w-40 font-mono"
+        <input class="input input-sm w-28 sm:w-40 font-mono"
                :value="key"
                @change="renameAttrKey('{{name}}', key, $event.target.value)"
                title="Key (rename)"
                aria-label="Key">
         {{#if (or (eq type.elem.kind "int") (eq type.elem.kind "port"))}}
-          <input type="number" class="input input-primary input-sm flex-1 font-mono"
+          <input type="number" class="input input-sm flex-1 font-mono"
                  x-model.number="values['{{name}}'][key]"
                  {{#if type.elem.min}}min="{{type.elem.min}}"{{/if}}
                  {{#if type.elem.max}}max="{{type.elem.max}}"{{/if}}>
         {{else}}
           {{#if (eq type.elem.kind "float")}}
-            <input type="number" class="input input-primary input-sm flex-1 font-mono" step="any"
+            <input type="number" class="input input-sm flex-1 font-mono" step="any"
                    x-model.number="values['{{name}}'][key]">
           {{else}}
             {{#if (eq type.elem.kind "bool")}}
@@ -242,20 +241,20 @@
                        x-model="values['{{name}}'][key]">
               </label>
             {{else}}
-              <input class="input input-primary input-sm flex-1 font-mono" x-model="values['{{name}}'][key]">
+              <input class="input input-sm flex-1 font-mono" x-model="values['{{name}}'][key]">
             {{/if}}
           {{/if}}
         {{/if}}
         <button type="button"
                 @click="removeAttrItem('{{name}}', key)"
-                class="btn btn-ghost btn-xs text-error shrink-0"
-                title="Remove">Remove</button>
+                class="btn btn-ghost btn-sm btn-square shrink-0 text-base-content/50 hover:text-error"
+                title="Remove" aria-label="Remove">✕</button>
       </div>
     </template>
     <div class="flex gap-2 items-center mt-2">
-      <input class="input input-primary input-sm w-40 font-mono" placeholder="key" x-ref="newkey_{{name}}">
+      <input class="input input-sm w-28 sm:w-40 font-mono" placeholder="key" x-ref="newkey_{{name}}">
       <button type="button" @click="addAttrItem('{{name}}', $refs['newkey_{{name}}'])"
-              class="btn btn-outline btn-xs shrink-0">+ Add</button>
+              class="btn btn-ghost btn-sm text-primary shrink-0">+ Add</button>
     </div>
   </div>
 {{/if}}

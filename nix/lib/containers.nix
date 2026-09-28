@@ -1,6 +1,8 @@
 # Container, systemd unit, and appdata helpers for image configurability, auto-updates, and neo web UI.
 # containers.* uses rank 300 so the group sits after skill (200) in the service form.
-{lib, ...}: {
+{lib, ...}: let
+  neoUi = (import ./ui.nix {inherit lib;}).libExtensions.ui.neo.ui;
+in {
   libExtensions.containers = {
     neo = {
       # Declares a fixed set of container image options (containers.<name> : str).
@@ -35,7 +37,10 @@
               default = {};
               description = "Docker image overrides for this service's declared containers";
             }
-            // {inherit rank;};
+            // {
+              inherit rank;
+              ui = neoUi.mkUi {group = neoUi.groups.advanced;};
+            };
 
           systemdUnits = mkOption {
             type = types.listOf types.str;

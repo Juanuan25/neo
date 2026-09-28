@@ -1,37 +1,43 @@
-{{!-- Service / core option pane shell. Concern-specific pieces live under pane/ and options/. --}}
+{{!-- Service / core option pane shell. Concern-specific pieces live under pane/ and options/.
+     Layout: header → sticky strip (tabs + save) → one panel per tab.
+     Settings = option sections; Status = runtime units; Snapshots = lazy ZFS list. --}}
 <div id="options-pane" class="card bg-base-100 shadow" data-service="{{service}}" data-save-endpoint="{{save_endpoint}}" data-is-core="{{#if is_core}}true{{else}}false{{/if}}" data-load-url="{{#if is_core}}/configuration/core/{{service}}{{else}}/configuration/option/{{service}}{{/if}}" x-data="optionForm()" x-init="initForm()">
   <!-- Seed script moved to top so it is available immediately when x-init runs -->
   <script id="options-seed" type="application/json">{{{options_json}}}</script>
   <script id="plugin-inventory-seed" type="application/json">{{#if plugin_inventory_json}}{{{plugin_inventory_json}}}{{else}}[]{{/if}}</script>
 
-  {{!-- Header block: sticky save sits outside card-body so it matches the action-bar width.
+  {{!-- Header block: sticky strip sits outside card-body so it matches the action-bar width.
        Mobile padding is tightened via #options-pane --card-p in input.css. --}}
-  <div class="card-body{{#if options}} pb-2{{/if}}">
+  <div class="card-body pb-3">
     {{> pane/error}}
-    {{#if meta}}
-      {{> pane/header}}
-    {{else}}
-      {{> pane/header_compact}}
-    {{/if}}
-    {{> pane/runtime_units}}
-    {{#if appdata}}
-      {{!-- ZFS snapshots of the appdata dataset (lazy: zfs list runs per request). --}}
-      <div id="snapshots-{{service}}" hx-get="/service/{{service}}/snapshots" hx-trigger="load" hx-swap="outerHTML" class="mb-2 text-[10px] opacity-40">
-        <span class="loading loading-spinner loading-xs"></span> snapshots…
+    {{> pane/header}}
+  </div>
+
+  {{> pane/sticky_save}}
+
+  <div class="card-body pt-3 sm:pt-4">
+    <div x-show="paneTab === 'settings'">
+      {{> pane/options_list}}
+      <p class="mt-4 text-[11px] text-base-content/45">
+        Values come from the flake evaluation of your nixosConfiguration.
+      </p>
+    </div>
+
+    {{#if (or units appdata)}}
+      <div x-show="paneTab === 'status'" x-cloak>
+        {{> pane/runtime_units}}
       </div>
     {{/if}}
 
-    <div class="text-[10px] text-base-content/50 -mt-1{{#if options}} mb-0{{else}} mb-2 sm:mb-3{{/if}}">
-      Values loaded from flake evaluation (current where set in your nixosConfiguration).
-    </div>
-  </div>
-
-  {{#if options}}
-    {{> pane/sticky_save}}
-  {{/if}}
-
-  <div class="card-body{{#if options}} pt-2 sm:pt-3{{/if}}">
-    {{> pane/options_list}}
+    {{#if appdata}}
+      {{!-- ZFS snapshots of the appdata dataset. `intersect once` defers the
+           zfs list until the tab is first opened (hidden panels never intersect). --}}
+      <div x-show="paneTab === 'snapshots'" x-cloak>
+        <div id="snapshots-{{service}}" hx-get="/service/{{service}}/snapshots" hx-trigger="intersect once" hx-swap="outerHTML" class="py-6 text-center text-xs opacity-50">
+          <span class="loading loading-spinner loading-sm"></span>
+          <div class="mt-1">Loading snapshots…</div>
+        </div>
+      </div>
+    {{/if}}
   </div>
 </div>
-

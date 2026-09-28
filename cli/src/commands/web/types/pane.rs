@@ -36,12 +36,32 @@ pub struct RuntimeUnit {
     pub is_container: bool,
 }
 
+/// One settings section in the option pane: "General" (ungrouped options,
+/// always open) followed by collapsible `ui.group` sections ordered by rank.
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct OptionSection {
+    pub id: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// False for General (rendered open, no collapse chrome).
+    pub collapsible: bool,
+    pub options: Vec<OptionSchema>,
+    /// Names of options flagged `ui.summary` (chips on the collapsed header).
+    pub summary: Vec<String>,
+}
+
 /// Context for the per-service option pane (includes both the form fields and rich intro metadata).
 #[derive(Serialize)]
 pub struct OptionPaneContext {
     pub service: String,
     pub meta: Option<ServiceMeta>,
     pub options: Vec<OptionSchema>,
+    /// `options` split into General + collapsible groups for rendering.
+    #[serde(default)]
+    pub sections: Vec<OptionSection>,
     /// Pre-serialized JSON for the Alpine form (the options array only).
     pub options_json: String,
     /// Endpoint for save POST (e.g. /save/foo or /save-core/bar)

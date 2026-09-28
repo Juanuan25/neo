@@ -90,9 +90,46 @@ pub struct OptionUiSave {
     pub omit_if_empty: bool,
 }
 
+/// Collapsible settings section (`lib.neo.ui.groups.*` / `mkGroup`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct OptionUiGroup {
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub rank: i64,
+}
+
 /// Declarative UI presentation (widgets, choices, keysFrom, save). See nix/lib/ui.nix.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct OptionUi {
+    /// Settings section; inherited from the nearest ancestor at extract time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<OptionUiGroup>,
+    /// Human label; falls back to the humanized last path segment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Show this option's value as a chip on its collapsed group header.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub summary: bool,
+    /// Display names for enum / choice values.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "choiceLabels"
+    )]
+    pub choice_labels: Option<std::collections::BTreeMap<String, String>>,
+    /// Sibling bool option (relative name) that must be true for this field to show.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "visibleWhen"
+    )]
+    pub visible_when: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub widget: Option<String>,
     /// Named choice provider or resolved list name (type.values holds the actual choices).
@@ -154,6 +191,16 @@ pub struct OptionType {
     pub values: Option<Vec<serde_json::Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
+    /// `values` paired with display labels (filled in Rust from ui.choiceLabels).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub choices: Option<Vec<ChoiceItem>>,
+}
+
+/// One enum / multi-select choice: raw value (as saved) + display label.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct ChoiceItem {
+    pub value: serde_json::Value,
+    pub label: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -185,6 +232,19 @@ pub struct OptionSchema {
     /// Declarative presentation metadata from option.ui (widgets, keysFrom, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui: Option<OptionUi>,
+    /// Display label (ui.label or humanized last path segment). Filled in Rust.
+    #[serde(default)]
+    pub label: String,
+    /// Humanized parent path ("Containers") when the label alone lacks context.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub crumb: String,
+    /// Absolute option name of ui.visibleWhen (resolved against this option's parent).
+    #[serde(
+        default,
+        skip_serializing_if = "String::is_empty",
+        rename = "visibleWhen"
+    )]
+    pub visible_when: String,
 }
 
 #[cfg(test)]

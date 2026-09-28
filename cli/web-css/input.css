@@ -181,3 +181,41 @@ html.neo-bars-fused #options-sticky-save {
     --card-p: 1.5rem;
   }
 }
+
+/*
+ * Option pane: live unit summary dot (header badge + Status tab). State set by
+ * configuration.js (unitSummary) from the per-unit data-active-state.
+ */
+.neo-unit-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  background-color: var(--color-base-300);
+}
+.neo-unit-dot[data-state="ok"] { background-color: var(--color-success); }
+.neo-unit-dot[data-state="partial"] { background-color: var(--color-warning); }
+.neo-unit-dot[data-state="failed"] { background-color: var(--color-error); }
+.neo-unit-dot[data-state="busy"],
+.neo-unit-dot[data-state="unknown"] {
+  background-color: var(--color-info);
+  animation: neo-dot-pulse 1.4s ease-in-out infinite;
+}
+@keyframes neo-dot-pulse {
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .neo-unit-dot { animation: none !important; }
+}
+
+/* Pane tabs scroll sideways on very narrow phones instead of wrapping. */
+.neo-pane-tabs {
+  scrollbar-width: none;
+}
+.neo-pane-tabs::-webkit-scrollbar {
+  display: none;
+}
+.neo-pane-tabs .tab {
+  white-space: nowrap;
+}

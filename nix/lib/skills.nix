@@ -1,6 +1,8 @@
 # Hermes skill helpers — declarative per-service skills collected by hermes/skills.nix.
 # Parallel to reverse-proxy: skills.nix sets skill.conf; hermes materializes SKILL.md trees.
-{lib, ...}: {
+{lib, ...}: let
+  neoUi = (import ./ui.nix {inherit lib;}).libExtensions.ui.neo.ui;
+in {
   libExtensions.skills = {
     neo = rec {
       # Options merged into neo.services.<name> (like mkReverseProxyOptions).
@@ -20,7 +22,13 @@
                       default = enabled;
                       description = "Publish a Hermes skill for this service when it is enabled";
                     }
-                    // {rank = 0;};
+                    // {
+                      rank = 0;
+                      ui = neoUi.mkUi {
+                        label = "Available to the assistant";
+                        summary = true;
+                      };
+                    };
                   # Filled by nix/services/<name>/skills.nix (internal, like proxyConf).
                   conf = mkOption {
                     type = types.nullOr (types.submodule {
@@ -68,7 +76,10 @@
               default = {};
               description = "Hermes agent skill published for this Neo service";
             }
-            // {rank = 200;};
+            // {
+              rank = 200;
+              ui = neoUi.mkUi {group = neoUi.groups.assistant;};
+            };
         };
 
       getSkillServices = config:

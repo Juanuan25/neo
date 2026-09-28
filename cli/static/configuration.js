@@ -942,3 +942,65 @@ window.configShell = function configShell() {
     observe(t && t.querySelectorAll ? t : document);
   });
 })();
+
+// Unit status summary: folds the live per-unit ActiveState (pushed into
+// #unit-controls-* over /ws/status) into the pane header badge and Status tab dot.
+(function unitSummary() {
+  var scheduled = false;
+
+  function summarize() {
+    scheduled = false;
+    var root = document.getElementById('runtime-units');
+    var badges = document.querySelectorAll('[data-unit-summary]');
+    var dots = document.querySelectorAll('[data-unit-summary-dot]');
+    if (!root || (!badges.length && !dots.length)) return;
+    var ctrls = root.querySelectorAll('.unit-row .unit-controls');
+    var total = ctrls.length;
+    var known = 0, active = 0, failed = 0, busy = 0;
+    for (var i = 0; i < ctrls.length; i++) {
+      var st = ctrls[i].getAttribute('data-active-state');
+      if (!st) continue;
+      known++;
+      if (st === 'active') active++;
+      else if (st === 'failed') failed++;
+      else if (st === 'activating' || st === 'deactivating' || st === 'reloading') busy++;
+    }
+    var state, text;
+    if (known < total) { state = 'unknown'; text = 'checking…'; }
+    else if (failed) { state = 'failed'; text = failed === 1 ? '1 failed' : failed + ' failed'; }
+    else if (busy) { state = 'busy'; text = 'changing…'; }
+    else if (active === total) { state = 'ok'; text = 'running'; }
+    else if (active === 0) { state = 'down'; text = 'stopped'; }
+    else { state = 'partial'; text = active + '/' + total + ' running'; }
+    for (var d = 0; d < dots.length; d++) dots[d].setAttribute('data-state', state);
+    for (var b = 0; b < badges.length; b++) {
+      var t = badges[b].querySelector('[data-unit-summary-text]');
+      if (t) t.textContent = text;
+    }
+  }
+
+  function schedule() {
+    if (scheduled) return;
+    scheduled = true;
+    (window.requestAnimationFrame || setTimeout)(summarize);
+  }
+
+  function start() {
+    var host = document.getElementById('config-content') || document.body;
+    if (typeof MutationObserver === 'function') {
+      new MutationObserver(schedule).observe(host, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['data-active-state'],
+      });
+    }
+    schedule();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+})();

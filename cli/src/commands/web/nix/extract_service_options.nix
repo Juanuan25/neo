@@ -609,9 +609,49 @@
               then {inherit runAs;}
               else {}
             );
+      group = let
+        g = tryOr null (u.group or null);
+      in
+        if builtins.isAttrs g && (g.id or "") != ""
+        then toSafeValue g
+        else null;
+      label = tryOr null (u.label or null);
+      summary = tryOr false (u.summary or false);
+      choiceLabels = let
+        c = tryOr null (u.choiceLabels or null);
+      in
+        if builtins.isAttrs c
+        then toSafeValue c
+        else null;
+      visibleWhen = tryOr null (u.visibleWhen or null);
       # Drop null / empty shells so the JSON seed stays small.
       cleaned =
         {}
+        // (
+          if group != null
+          then {inherit group;}
+          else {}
+        )
+        // (
+          if label != null && label != ""
+          then {inherit label;}
+          else {}
+        )
+        // (
+          if summary
+          then {inherit summary;}
+          else {}
+        )
+        // (
+          if choiceLabels != null
+          then {inherit choiceLabels;}
+          else {}
+        )
+        // (
+          if visibleWhen != null && visibleWhen != ""
+          then {inherit visibleWhen;}
+          else {}
+        )
         // (
           if widget != null && widget != ""
           then {inherit widget;}
@@ -721,9 +761,20 @@
           )
         );
 
-  mkOptionRecord = path: o: let
+  # `group` is the nearest declared ui.group (own or ancestor); see walk.
+  mkOptionRecord = group: path: o: let
     t = tryOr {} (o.type or {});
-    uiMeta = toUiMeta (o.ui or null);
+    uiOwn = toUiMeta (o.ui or null);
+    uiMeta =
+      if group == null || (uiOwn != null && (uiOwn.group or null) != null)
+      then uiOwn
+      else
+        (
+          if uiOwn == null
+          then {}
+          else uiOwn
+        )
+        // {inherit group;};
     choices = tryOr null (
       if uiMeta == null
       then null
@@ -780,7 +831,8 @@
   #   places the whole child block among the parent's siblings.
   # - listOf / attrsOf stay as a single field; element schema lives on type.elem
   #   (including submodule fields). No placeholder paths like entries.<name>.* .
-  walk = pathList: o: let
+  # - ui.group is inherited: children of a grouped submodule land in its section.
+  walk = group: pathList: o: let
     path =
       if pathList == []
       then ""
@@ -793,6 +845,11 @@
       if internal
       then []
       else let
+        ownGroup = (toUiMeta (o.ui or null)).group or null;
+        g =
+          if ownGroup != null
+          then ownGroup
+          else group;
         t = tryOr null (o.type or null);
         tn = typeNameOf (tryOr {} t);
         subSet = callGetSubOptions (tryOr {} t) pathList;
@@ -809,16 +866,16 @@
         # A submodule with ui.widget stays one field so the composite editor can
         # cradle its children (e.g. providerAuth on llm).
         if expandChildren
-        then walk pathList subSet
-        else [(mkOptionRecord path o)]
+        then walk g pathList subSet
+        else [(mkOptionRecord g path o)]
     else if builtins.isAttrs o
     then let
       keys = sortSiblingNames o;
     in
-      builtins.concatLists (map (k: walk (pathList ++ [k]) o.${k}) keys)
+      builtins.concatLists (map (k: walk group (pathList ++ [k]) o.${k}) keys)
     else [];
 
-  raw = walk [] root;
+  raw = walk null [] root;
 
   # Walk already emits in hierarchical order; filter only (no global re-sort).
   sorted =

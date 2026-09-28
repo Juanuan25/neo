@@ -1,8 +1,21 @@
-<div class="mt-1.5 sm:mt-2">
-  <select class="select select-sm select-primary w-full font-mono inline"
-          x-model="values['{{name}}']">
-    {{#each type.values}}
-      <option value="{{this}}">{{this}}</option>
+{{! Few choices → segmented buttons; many → select. Labels from ui.choiceLabels.
+    Buttons address choices by index so non-string enum members keep their type. }}
+{{#if (lt (len type.choices) 5)}}
+  <div class="join flex w-full" role="radiogroup" aria-label="{{label}}">
+    {{#each type.choices}}
+      <button type="button" role="radio"
+              class="join-item btn btn-sm flex-1 px-2"
+              :class="isChoiceSelected('{{../name}}', {{@index}}) ? 'btn-primary' : 'btn-outline border-base-300 font-normal'"
+              :aria-checked="isChoiceSelected('{{../name}}', {{@index}})"
+              @click="selectChoice('{{../name}}', {{@index}})">{{label}}</button>
+    {{/each}}
+  </div>
+{{else}}
+  <select class="select select-sm w-full"
+          x-model="values['{{name}}']"
+          aria-label="{{label}}">
+    {{#each type.choices}}
+      <option value="{{value}}">{{label}}</option>
     {{/each}}
   </select>
-</div>
+{{/if}}

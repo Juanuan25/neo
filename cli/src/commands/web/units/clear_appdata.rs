@@ -27,7 +27,7 @@ pub fn end_clear_appdata(config: &AppConfig, service: &str) {
 }
 
 const CLEAR_APPDATA_OUT_CLASSES: &str =
-    "clear-appdata-out text-[10px] ml-1 flex-shrink-0 max-w-[18rem] truncate";
+    "clear-appdata-out text-xs flex-shrink-0 max-w-full truncate";
 
 /// OOB fragment for the per-service clear-appdata status slot.
 pub fn clear_appdata_out_oob(service: &str, inner: &str, title: &str) -> String {
@@ -50,13 +50,13 @@ pub fn clear_appdata_btn_oob(service: &str, appdata: &str, busy: bool) -> String
     ));
     if busy {
         format!(
-            r#"<button id="clear-appdata-btn-{svc}" class="btn btn-error btn-xs btn-disabled" disabled title="{path}" hx-swap-oob="true"><span class="loading loading-spinner loading-xs"></span> Clearing…</button>"#,
+            r#"<button id="clear-appdata-btn-{svc}" class="btn btn-error btn-outline btn-sm btn-disabled shrink-0" disabled title="{path}" hx-swap-oob="true"><span class="loading loading-spinner loading-xs"></span> Clearing…</button>"#,
             svc = svc,
             path = path,
         )
     } else {
         format!(
-            r##"<button id="clear-appdata-btn-{svc}" class="btn btn-error btn-xs" title="Delete {path}" hx-post="/service/{svc}/clear-appdata" hx-swap="none" hx-confirm="{confirm}" hx-disabled-elt="this" hx-swap-oob="true">Clear appdata</button>"##,
+            r##"<button id="clear-appdata-btn-{svc}" class="btn btn-error btn-outline btn-sm shrink-0" title="Delete {path}" hx-post="/service/{svc}/clear-appdata" hx-swap="none" hx-confirm="{confirm}" hx-disabled-elt="this" hx-swap-oob="true">Clear appdata</button>"##,
             svc = svc,
             path = path,
             confirm = confirm,

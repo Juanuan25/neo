@@ -1,0 +1,56 @@
+{{! Row head: label, state badges, description (tap to expand), and actions.
+    Bool options put their toggle here, so the whole row is one line. }}
+<div class="flex items-start gap-3 min-w-0">
+  <div class="flex-1 min-w-0">
+    {{#if crumb}}
+      <div class="text-[10px] uppercase tracking-wider text-base-content/45 leading-tight">{{crumb}}</div>
+    {{/if}}
+    <div class="flex items-center gap-1.5 flex-wrap min-h-6">
+      <label class="text-sm font-medium leading-snug{{#if (eq type.kind "bool")}} cursor-pointer{{/if}}"
+             {{#if (eq type.kind "bool")}}for="opt-{{name}}"{{/if}}>{{label}}</label>
+      {{#if readOnly}}<span class="badge badge-ghost badge-xs">read-only</span>{{/if}}
+      <span x-cloak x-show="!isAtOriginal('{{name}}')" class="badge badge-warning badge-xs">unsaved</span>
+      <span x-cloak x-show="isAtOriginal('{{name}}') && sourceLabel('{{name}}') === 'modified'"
+            class="badge badge-ghost badge-xs" title="Differs from the default value">customized</span>
+    </div>
+    {{#if description}}
+      <p class="neo-desc text-xs text-base-content/60 leading-snug mt-0.5 line-clamp-2 cursor-pointer whitespace-pre-line"
+         title="Tap to expand"
+         @click="$el.classList.toggle('line-clamp-2')">{{description}}</p>
+    {{/if}}
+  </div>
+
+  <div class="flex items-center gap-0.5 flex-shrink-0 -mr-1">
+    <button type="button" x-cloak x-show="!isAtOriginal('{{name}}')"
+            @click="revertField('{{name}}')"
+            class="btn btn-ghost btn-xs btn-square"
+            title="Undo changes to this setting" aria-label="Undo changes">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4" aria-hidden="true"><path fill-rule="evenodd" d="M7.8 4.2a.75.75 0 010 1.06L5.56 7.5h6.19a4.75 4.75 0 010 9.5H9a.75.75 0 010-1.5h2.75a3.25 3.25 0 000-6.5H5.56l2.24 2.24a.75.75 0 11-1.06 1.06L3.22 8.78a.75.75 0 010-1.06L6.74 4.2a.75.75 0 011.06 0z" clip-rule="evenodd"/></svg>
+    </button>
+    <div class="dropdown dropdown-end">
+      <button type="button" tabindex="0" class="btn btn-ghost btn-xs btn-square text-base-content/40 hover:text-base-content"
+              title="Details" aria-label="Details for {{label}}">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4" aria-hidden="true"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.25v3.25a.75.75 0 001.5 0V9.75A.75.75 0 0010 9H9z" clip-rule="evenodd"/></svg>
+      </button>
+      <div tabindex="0" class="dropdown-content card card-sm bg-base-100 border border-base-300 shadow-lg z-30 w-72 max-w-[calc(100vw-2rem)] text-left">
+        <div class="card-body gap-1.5 text-xs">
+          {{#if description}}<p class="text-sm whitespace-pre-line">{{description}}</p><div class="divider my-0"></div>{{/if}}
+          <div class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+            <span class="text-base-content/50">setting</span><span class="font-mono break-all">{{name}}</span>
+            <span class="text-base-content/50">type</span><span class="font-mono break-all">{{typeLabel}}</span>
+            <span class="text-base-content/50">default</span><span class="font-mono break-all whitespace-pre-wrap max-h-32 overflow-auto">{{defaultDisplay}}</span>
+          </div>
+          <button type="button" class="btn btn-xs btn-outline mt-1"
+                  x-show="sourceLabel('{{name}}') === 'modified'"
+                  @click="resetField('{{name}}'); $el.blur()">Reset to default</button>
+        </div>
+      </div>
+    </div>
+    {{#if (eq type.kind "bool")}}
+      <input id="opt-{{name}}" type="checkbox" class="toggle toggle-primary ml-1"
+             x-model="values['{{name}}']"
+             {{#if readOnly}}disabled{{/if}}
+             aria-label="{{label}}">
+    {{/if}}
+  </div>
+</div>

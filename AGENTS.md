@@ -70,6 +70,15 @@ Recommended top-level **rank bands** for `neo.services.<name>` (siblings only; s
 | 200 | `skill` (`mkSkillOptions`) |
 | 300 | `containers` (`mkContainerDefinitions`) |
 
+### Sections and labels (`ui.group` / `label` / `summary` / `choiceLabels` / `visibleWhen`)
+
+The service pane shows **General** (ungrouped options, always open) followed by collapsible **groups**. `ui.group = lib.neo.ui.groups.access` (or `mkGroup { id; label; description; icon; rank; }`) on an option puts it and all its descendants in that section; generated option sets already do this (`mkReverseProxyOptions`/`mkVpnOptions` → access, `mkSkillOptions` → assistant, `mkContainerDefinitions` → advanced). Section split + humanized labels happen in `cli/src/commands/web/nix/sections.rs`.
+
+- `label` — human name (default: humanized last path segment)
+- `summary = true` — value chip on the collapsed group header
+- `choiceLabels = { web = "Internet"; }` — display names for enum / choice values
+- `visibleWhen = "enabled"` — sibling bool; the field hides while it is false
+
 ### `ui.choices` (multi-select)
 
 On a `listOf str` (or nested field), set `ui.choices = "authApps"` (named provider) or `ui.choices = [ "a" "b" ]`. Extract attaches `type.values`; templates already render a checkbox grid when `type.values` is set.

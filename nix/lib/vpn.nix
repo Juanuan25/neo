@@ -1,6 +1,8 @@
 # VPN helper types and getters for automatic VPN overlay.
 # Rank 110 places the vpn.* group after subdomain (100) and before auth (120).
-{lib, ...}: {
+{lib, ...}: let
+  neoUi = (import ./ui.nix {inherit lib;}).libExtensions.ui.neo.ui;
+in {
   libExtensions.vpn = {
     neo = {
       mkVpnOptions = {
@@ -21,7 +23,13 @@
                       default = enabled;
                       description = "Put selected outbound containers behind the VPN (gluetun)";
                     }
-                    // {rank = 0;};
+                    // {
+                      rank = 0;
+                      ui = neoUi.mkUi {
+                        label = "Route through VPN";
+                        summary = true;
+                      };
+                    };
                   containers = mkOption {
                     type = types.listOf types.str;
                     internal = true;
@@ -57,7 +65,10 @@
               };
               description = "VPN routing options for this service";
             }
-            // {rank = 110;};
+            // {
+              rank = 110;
+              ui = neoUi.mkUi {group = neoUi.groups.access;};
+            };
         };
 
       # Returns attrset of services (name -> cfg) that have vpn.enabled = true

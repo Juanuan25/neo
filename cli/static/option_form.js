@@ -31,6 +31,10 @@ function optionForm() {
     plDraft: {},
     _pluginInv: null,
     oauthBusy: {},
+    /** Active pane tab: 'settings' | 'status' | 'snapshots'. */
+    paneTab: 'settings',
+    /** Collapsible section id → open (remembered per service in localStorage). */
+    openSections: {},
 
     cloneValue(v) {
       if (v === null || v === undefined) return v;
@@ -252,6 +256,7 @@ function optionForm() {
         || '';
       this.isCore = (pane?.dataset?.isCore === 'true')
         || (pane?.dataset?.saveEndpoint || '').startsWith('/save-core/');
+      this.initPaneChrome();
 
       this.initWidgets();
       // Widget init may canonicalize values (null → '', keysFrom fill). That is
@@ -259,6 +264,135 @@ function optionForm() {
       Object.keys(this.values || {}).forEach((k) => {
         this.originals[k] = this.cloneValue(this.values[k]);
       });
+    },
+
+    // ── Pane chrome: tabs, sections, visibility, summaries ───────────
+
+    _prefKey(kind) {
+      return 'neo.pane.' + kind + '.' + (this.isCore ? 'core.' : '') + (this.serviceName || '');
+    },
+
+    _loadPref(kind, fallback) {
+      try {
+        const raw = window.localStorage.getItem(this._prefKey(kind));
+        return raw ? JSON.parse(raw) : fallback;
+      } catch (_) {
+        return fallback;
+      }
+    },
+
+    _savePref(kind, value) {
+      try { window.localStorage.setItem(this._prefKey(kind), JSON.stringify(value)); } catch (_) { /* private mode */ }
+    },
+
+    initPaneChrome() {
+      const pane = document.getElementById('options-pane');
+      const has = (sel) => typeof pane?.querySelector === 'function' && !!pane.querySelector(sel);
+      const tabs = ['settings'];
+      if (has('#runtime-units')) tabs.push('status');
+      if (has('[id^="snapshots-"]')) tabs.push('snapshots');
+      const tab = this._loadPref('tab', 'settings');
+      this.paneTab = tabs.includes(tab) ? tab : 'settings';
+      const open = this._loadPref('sections', {});
+      this.openSections = (open && typeof open === 'object') ? open : {};
+    },
+
+    setPaneTab(tab) {
+      this.paneTab = tab;
+      this._savePref('tab', tab);
+    },
+
+    isSectionOpen(id) {
+      return !!this.openSections[id];
+    },
+
+    toggleSection(id) {
+      this.openSections = { ...this.openSections, [id]: !this.openSections[id] };
+      this._savePref('sections', this.openSections);
+    },
+
+    expandAllSections(open) {
+      const next = {};
+      document.querySelectorAll('#options-pane section[data-section]').forEach((el) => {
+        next[el.dataset.section] = !!open;
+      });
+      this.openSections = next;
+      this._savePref('sections', next);
+      this.setPaneTab('settings');
+    },
+
+    isDirty() {
+      return Object.keys(this.originals || {}).some((k) => !this.isAtOriginal(k));
+    },
+
+    dirtyCount() {
+      return Object.keys(this.originals || {}).filter((k) => !this.isAtOriginal(k)).length;
+    },
+
+    customizedCount(names) {
+      return (names || []).filter((n) => n in (this.defaults || {}) && !this.isAtDefault(n)).length;
+    },
+
+    /** ui.visibleWhen (resolved to an absolute name in Rust): hide while that bool is false. */
+    isFieldVisible(name) {
+      const dep = this.optionsByName[name]?.visibleWhen;
+      if (!dep || !(dep in (this.values || {}))) return true;
+      return !!this.values[dep];
+    },
+
+    choiceAt(name, idx) {
+      const t = this.optionsByName[name]?.type || {};
+      const list = t.choices || (t.elem && t.elem.choices) || [];
+      return list[idx];
+    },
+
+    choiceLabel(name, value) {
+      const t = this.optionsByName[name]?.type || {};
+      const list = t.choices || (t.elem && t.elem.choices) || [];
+      const hit = list.find((c) => c.value === value || String(c.value) === String(value));
+      return hit ? hit.label : String(value);
+    },
+
+    isChoiceSelected(name, idx) {
+      const c = this.choiceAt(name, idx);
+      return !!c && String(this.values[name]) === String(c.value);
+    },
+
+    selectChoice(name, idx) {
+      const c = this.choiceAt(name, idx);
+      if (c) this.values[name] = this.cloneValue(c.value);
+    },
+
+    isListChoiceSelected(name, idx) {
+      const c = this.choiceAt(name, idx);
+      return !!c && (this.values[name] || []).includes(c.value);
+    },
+
+    toggleListChoiceAt(name, idx) {
+      const c = this.choiceAt(name, idx);
+      if (!c) return;
+      this.toggleListChoice(name, c.value, !this.isListChoiceSelected(name, idx));
+    },
+
+    /** Chip for a ui.summary option on a collapsed section header. */
+    summaryChip(name) {
+      const opt = this.optionsByName[name];
+      if (!opt) return { text: '', cls: 'hidden' };
+      const label = opt.label || name;
+      const v = this.values[name];
+      const on = 'badge-soft badge-primary';
+      const off = 'badge-ghost text-base-content/60';
+      if (typeof v === 'boolean') {
+        return { text: (v ? '✓ ' : '✕ ') + label, cls: v ? on : off };
+      }
+      if (Array.isArray(v)) {
+        if (!v.length) return { text: label + ': none', cls: off };
+        const shown = v.slice(0, 3).map((x) => this.choiceLabel(name, x)).join(', ');
+        return { text: label + ': ' + shown + (v.length > 3 ? ' +' + (v.length - 3) : ''), cls: on };
+      }
+      if (v === null || v === undefined || v === '') return { text: label + ': not set', cls: off };
+      if (typeof v === 'object') return { text: label + ': ' + Object.keys(v).length, cls: on };
+      return { text: label + ': ' + this.choiceLabel(name, v), cls: on };
     },
 
     toggleListChoice(optionName, choice, checked) {

@@ -1,65 +1,59 @@
-{{#if units}}
-  {{!-- Runtime unit rows: live ActiveState + controls are pushed over /ws/status
-       after the configuration page registers these units (watch_replace). --}}
-  <div class="mb-2 sm:mb-3 p-1.5 sm:p-2 bg-base-200/60 rounded border border-base-300" id="runtime-units" data-units="{{#each units}}{{name}}{{#unless @last}} {{/unless}}{{/each}}">
-    <div class="text-xs font-semibold mb-1.5 flex items-center gap-2 flex-wrap">
-      <span>Runtime units</span>
-      {{#if group_unit}}
-        {{!-- Group target. Not a row: these three buttons wrap the member units.
-             systemctl needs the .target suffix; a bare name would look up a .service. --}}
-        <span class="unit-controls inline-flex items-center gap-1 font-normal">
-          <button type="button" class="btn btn-ghost btn-xs h-5 min-h-0 px-1.5" hx-post="/unit/start/{{group_unit}}" hx-swap="none" title="systemctl start {{group_unit}}">▶</button>
-          <button type="button" class="btn btn-ghost btn-xs h-5 min-h-0 px-1.5" hx-post="/unit/restart/{{group_unit}}" hx-swap="none" title="systemctl restart {{group_unit}}">⟳</button>
-          <button type="button" class="btn btn-ghost btn-xs h-5 min-h-0 px-1.5" hx-post="/unit/stop/{{group_unit}}" hx-swap="none" title="systemctl stop {{group_unit}}">⏹</button>
-        </span>
-      {{/if}}
-      <span class="text-[10px] font-normal opacity-50">live via websocket</span>
-      {{#if appdata}}
-        <div class="flex-1"></div>
-        <button id="clear-appdata-btn-{{service}}"
-                class="btn btn-error btn-xs"
-                title="Delete {{appdata}}"
-                hx-post="/service/{{service}}/clear-appdata"
-                hx-swap="none"
-                hx-confirm="Stop all related units, permanently delete {{appdata}} and all contents, then start the units again? This cannot be undone."
-                hx-disabled-elt="this">
-          Clear appdata
-        </button>
-        <div id="clear-appdata-out-{{service}}" class="clear-appdata-out text-[10px] flex-shrink-0 max-w-[18rem] truncate" title=""></div>
-      {{/if}}
-    </div>
-    <div class="space-y-0.5">
-      {{#each units}}
-        <div class="flex items-center text-xs w-full unit-row" data-unit="{{name}}">
-          <span class="font-mono text-[11px] opacity-80 flex-shrink-0 mr-1">{{name}}</span>
-          <div class="flex-1"></div>
-          <div id="unit-controls-{{name}}" class="unit-controls flex items-center gap-1 flex-shrink-0">
-            <span class="text-[10px] opacity-40">⋯</span>
-          </div>
-          <div id="update-out-{{name}}" class="update-out update-out-inline text-[10px] ml-1 flex-shrink-0 max-w-[16rem] truncate" title=""></div>
+{{!-- Status tab. Unit rows: live ActiveState + controls are pushed over /ws/status
+     after the configuration page registers these units (watch_replace on
+     .unit-row[data-unit]). Clear appdata sits apart in a danger zone. --}}
+<div id="runtime-units" class="space-y-5"{{#if units}} data-units="{{#each units}}{{name}}{{#unless @last}} {{/unless}}{{/each}}"{{/if}}>
+  {{#if units}}
+    <div>
+      <div class="flex items-end justify-between gap-3 flex-wrap mb-2">
+        <div class="min-w-0">
+          <h3 class="font-semibold text-sm sm:text-base">Running processes</h3>
+          <p class="text-xs text-base-content/60">Live state of this service's systemd units.</p>
         </div>
-      {{/each}}
-    </div>
-  </div>
-{{else}}
-  {{#if appdata}}
-    {{!-- Appdata-only services (no declared runtime units) still get clear controls. --}}
-    <div class="mb-2 sm:mb-3 p-1.5 sm:p-2 bg-base-200/60 rounded border border-base-300" id="runtime-units">
-      <div class="text-xs font-semibold mb-0 flex items-center gap-2 flex-wrap">
-        <span>Appdata</span>
-        <span class="text-[10px] font-normal opacity-50 font-mono truncate max-w-[14rem]" title="{{appdata}}">{{appdata}}</span>
-        <div class="flex-1"></div>
-        <button id="clear-appdata-btn-{{service}}"
-                class="btn btn-error btn-xs"
-                title="Delete {{appdata}}"
-                hx-post="/service/{{service}}/clear-appdata"
-                hx-swap="none"
-                hx-confirm="Permanently delete {{appdata}} and all contents? This cannot be undone."
-                hx-disabled-elt="this">
-          Clear appdata
-        </button>
-        <div id="clear-appdata-out-{{service}}" class="clear-appdata-out text-[10px] flex-shrink-0 max-w-[18rem] truncate" title=""></div>
+        {{#if group_unit}}
+          {{!-- Group target: wraps the member units. systemctl needs the .target suffix. --}}
+          <div class="join unit-controls">
+            <button type="button" class="join-item btn btn-sm" hx-post="/unit/start/{{group_unit}}" hx-swap="none" title="systemctl start {{group_unit}}">▶ Start</button>
+            <button type="button" class="join-item btn btn-sm" hx-post="/unit/restart/{{group_unit}}" hx-swap="none" title="systemctl restart {{group_unit}}">⟳ Restart</button>
+            <button type="button" class="join-item btn btn-sm" hx-post="/unit/stop/{{group_unit}}" hx-swap="none" title="systemctl stop {{group_unit}}">⏹ Stop</button>
+          </div>
+        {{/if}}
       </div>
+      <ul class="rounded-box border border-base-300 divide-y divide-base-300/70">
+        {{#each units}}
+          <li class="unit-row flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 px-3 py-2.5" data-unit="{{name}}">
+            <span class="font-mono text-xs sm:text-sm break-all min-w-0">{{name}}</span>
+            <div class="hidden sm:block flex-1"></div>
+            <div class="flex items-center gap-2 min-w-0 flex-wrap">
+              <div id="unit-controls-{{name}}" class="unit-controls flex items-center gap-1 flex-shrink-0">
+                <span class="text-[10px] opacity-40">⋯</span>
+              </div>
+              <div id="update-out-{{name}}" class="update-out update-out-inline text-[10px] flex-shrink-0 max-w-[16rem] truncate" title=""></div>
+            </div>
+          </li>
+        {{/each}}
+      </ul>
     </div>
   {{/if}}
-{{/if}}
+
+  {{#if appdata}}
+    <div class="rounded-box border border-error/30 bg-error/5 p-3 sm:p-4">
+      <h3 class="font-semibold text-sm text-error">Danger zone</h3>
+      <div class="mt-2 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+        <div class="text-xs text-base-content/70 min-w-0">
+          <div class="font-medium text-base-content text-sm">Clear app data</div>
+          Permanently deletes <span class="font-mono break-all">{{appdata}}</span>{{#if units}}, stopping the service while it runs{{/if}}. This cannot be undone.
+        </div>
+        <button id="clear-appdata-btn-{{service}}"
+                class="btn btn-error btn-outline btn-sm shrink-0"
+                title="Delete {{appdata}}"
+                hx-post="/service/{{service}}/clear-appdata"
+                hx-swap="none"
+                hx-confirm="{{#if units}}Stop all related units, permanently delete {{appdata}} and all contents, then start the units again? This cannot be undone.{{else}}Permanently delete {{appdata}} and all contents? This cannot be undone.{{/if}}"
+                hx-disabled-elt="this">
+          Clear appdata
+        </button>
+      </div>
+      <div id="clear-appdata-out-{{service}}" class="clear-appdata-out text-xs mt-2 flex-shrink-0 max-w-full truncate" title=""></div>
+    </div>
+  {{/if}}
+</div>

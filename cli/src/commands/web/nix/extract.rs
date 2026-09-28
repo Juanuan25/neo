@@ -186,6 +186,7 @@ impl NixEvaluator {
             service: target.label().to_string(),
             meta: None,
             options: vec![],
+            sections: vec![],
             options_json: "[]".to_string(),
             save_endpoint: target.save_endpoint(),
             is_core: target.is_core(),
@@ -238,6 +239,7 @@ impl NixEvaluator {
                     service: label.to_string(),
                     meta: None,
                     options: vec![],
+                    sections: vec![],
                     options_json: "[]".to_string(),
                     save_endpoint: target.save_endpoint(),
                     is_core: target.is_core(),
@@ -262,6 +264,8 @@ impl NixEvaluator {
         if let PaneTarget::CoreSection(section) = &target {
             rename_scalar_core_option(section, &mut opts);
         }
+        super::sections::label_options(&mut opts);
+        let sections = super::sections::build_sections(&opts);
         let options_json = serde_json::to_string(&opts).unwrap_or_else(|_| "[]".to_string());
         let units = map_units(raw.units, &raw.containers);
         let inv_urls: Vec<String> = raw.plugin_inventory.iter().map(|p| p.url.clone()).collect();
@@ -272,6 +276,7 @@ impl NixEvaluator {
             service: label.to_string(),
             meta: raw.meta,
             options: opts,
+            sections,
             options_json,
             save_endpoint: target.save_endpoint(),
             is_core: target.is_core(),

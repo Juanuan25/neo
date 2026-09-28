@@ -1,112 +1,57 @@
-{{! Submodule records are omitted unless they carry a composite ui.widget
+{{! One settings row. Label + description on the left; scalar controls sit to the
+    right on md+ and below on phones; collections and widgets span the full row.
+    Submodule records are omitted unless they carry a composite ui.widget
     (children with dotted names are shown flat otherwise). }}
 {{#if (eq type.kind "submodule")}}
   {{#if (eq ui.widget "providerAuth")}}
-  <div class="border border-base-300 rounded-lg p-2 sm:p-3 bg-base-200/40">
-    <div class="flex items-center justify-between gap-1.5 sm:gap-2">
-      <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
-        <span class="font-mono text-sm break-all">{{name}}</span>
-        {{#if readOnly}}<span class="badge badge-warning badge-xs">readOnly</span>{{/if}}
-        <div class="dropdown dropdown-right dropdown-hover">
-          <span tabindex="0" role="button"
-                class="cursor-help text-base-content/40 hover:text-primary text-[13px] leading-none select-none">
-            ⓘ
-          </span>
-          <div tabindex="0" class="dropdown-content card card-sm bg-base-100 shadow-sm z-10 w-72 text-left">
-            <div class="card-body text-sm">
-              {{#if description}}
-                <div>{{description}}</div>
-                <div class="divider my-1"></div>
-              {{/if}}
-              <div><span class="font-semibold">type:</span> <span class="font-mono text-xs">{{typeLabel}}</span></div>
-              <div><span class="font-semibold">default:</span> <span class="font-mono text-xs">{{defaultDisplay}}</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-1 flex-shrink-0">
-        <span x-show="sourceLabel('{{name}}') === 'modified'"
-              class="badge badge-warning badge-xs">modified</span>
-        <button @click="revertField('{{name}}')"
-                class="btn btn-ghost btn-xs"
-                :class="{ 'opacity-40': isAtOriginal('{{name}}') }"
-                :disabled="isAtOriginal('{{name}}')"
-                title="Revert this field to loaded value">↺</button>
+    <div class="neo-field py-3 sm:py-4" data-option="{{name}}" x-show="isFieldVisible('{{name}}')">
+      {{> options/field_head}}
+      <div class="mt-2">
+        {{> options/widgets/provider_auth}}
       </div>
     </div>
-    {{> options/widgets/provider_auth}}
-  </div>
   {{/if}}
 {{else}}
-  <div class="border border-base-300 rounded-lg p-2 sm:p-3 bg-base-200/40">
-    <div class="flex items-center justify-between gap-1.5 sm:gap-2">
-      <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
-        <span class="font-mono text-sm break-all">{{name}}</span>
-        {{#if readOnly}}<span class="badge badge-warning badge-xs">readOnly</span>{{/if}}
-        <div class="dropdown dropdown-right dropdown-hover">
-          <span tabindex="0" role="button"
-                class="cursor-help text-base-content/40 hover:text-primary text-[13px] leading-none select-none">
-            ⓘ
-          </span>
-          <div tabindex="0" class="dropdown-content card card-sm bg-base-100 shadow-sm z-10 w-72 text-left">
-            <div class="card-body text-sm">
-              {{#if description}}
-                <div>{{description}}</div>
-                <div class="divider my-1"></div>
-              {{/if}}
-              <div><span class="font-semibold">type:</span> <span class="font-mono text-xs">{{typeLabel}}</span></div>
-              <div><span class="font-semibold">default:</span> <span class="font-mono text-xs">{{defaultDisplay}}</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-1 flex-shrink-0">
-        <span x-show="sourceLabel('{{name}}') === 'modified'"
-              class="badge badge-warning badge-xs">modified</span>
-        <button @click="revertField('{{name}}')"
-                class="btn btn-ghost btn-xs"
-                :class="{ 'opacity-40': isAtOriginal('{{name}}') }"
-                :disabled="isAtOriginal('{{name}}')"
-                title="Revert this field to loaded value">↺</button>
+  {{#if (eq type.kind "bool")}}
+    <div class="neo-field py-3 sm:py-4" data-option="{{name}}" x-show="isFieldVisible('{{name}}')">
+      {{> options/field_head}}
+    </div>
+  {{else}}{{#if (or (eq type.kind "listOf") (eq type.kind "attrsOf"))}}
+    <div class="neo-field py-3 sm:py-4" data-option="{{name}}" x-show="isFieldVisible('{{name}}')">
+      {{> options/field_head}}
+      <div class="mt-2">
+        {{#if (eq type.kind "listOf")}}
+          {{#if (eq ui.widget "pluginList")}}
+            {{> options/widgets/plugin_list}}
+          {{else}}{{#if (eq ui.widget "primaryItemList")}}
+            {{> options/widgets/primary_item_list}}
+          {{else}}
+            {{> options/list_of}}
+          {{/if}}{{/if}}
+        {{else}}
+          {{> options/attrs_of}}
+        {{/if}}
       </div>
     </div>
-
-    {{#if (eq type.kind "bool")}}
-      {{> options/bool}}
-    {{/if}}
-
-    {{#if (eq type.kind "str")}}
-      {{> options/str}}
-    {{/if}}
-
-    {{#if (eq type.kind "nullOr")}}
-      {{> options/null_or}}
-    {{/if}}
-
-    {{#if (or (eq type.kind "int") (eq type.kind "port") (eq type.kind "float"))}}
-      {{> options/number}}
-    {{/if}}
-
-    {{#if (eq type.kind "enum")}}
-      {{> options/enum}}
-    {{/if}}
-
-    {{#if (eq type.kind "listOf")}}
-      {{#if (eq ui.widget "pluginList")}}
-        {{> options/widgets/plugin_list}}
-      {{else}}
-        {{#if (eq ui.widget "primaryItemList")}}
-          {{> options/widgets/primary_item_list}}
+  {{else}}
+    <div class="neo-field py-3 sm:py-4 md:grid md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] md:gap-6 md:items-start"
+         data-option="{{name}}" x-show="isFieldVisible('{{name}}')">
+      {{> options/field_head}}
+      <div class="mt-2 md:mt-0">
+        {{#if (eq type.kind "str")}}
+          {{> options/str}}
+        {{else}}{{#if (eq type.kind "path")}}
+          {{> options/str}}
+        {{else}}{{#if (eq type.kind "nullOr")}}
+          {{> options/null_or}}
+        {{else}}{{#if (or (eq type.kind "int") (eq type.kind "port") (eq type.kind "float"))}}
+          {{> options/number}}
+        {{else}}{{#if (eq type.kind "enum")}}
+          {{> options/enum}}
         {{else}}
-          {{> options/list_of}}
-        {{/if}}
-      {{/if}}
-    {{/if}}
-
-    {{#if (eq type.kind "attrsOf")}}
-      {{> options/attrs_of}}
-    {{/if}}
-  </div>
+          <p class="text-xs text-base-content/50 font-mono break-all">{{currentDisplay}}</p>
+        {{/if}}{{/if}}{{/if}}{{/if}}{{/if}}
+      </div>
+    </div>
+  {{/if}}{{/if}}
 {{/if}}
