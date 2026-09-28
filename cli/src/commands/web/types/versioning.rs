@@ -36,6 +36,8 @@ pub struct VersioningGraph {
     pub head: String,
     #[serde(rename = "currentBranch")]
     pub current_branch: String,
+    /// Uncommitted changes in the config repo (not yet activated).
+    pub dirty: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]

@@ -13,7 +13,7 @@ use crate::commands::web::settings::save::refresh_after_settings_change;
 use crate::commands::web::structs::{AppConfig, BranchesContext};
 use crate::commands::web::trigger::{trigger_activation, trigger_generation_switch};
 use crate::commands::web::util::{
-    branch_ok, config_dir, escape_html, generation_ok, rev_ok, sudo_cmd,
+    branch_ok, config_dir, diff_html, escape_html, generation_ok, rev_ok, sudo_cmd,
 };
 use crate::utils::{git_cmd, list_system_generations_with_sudo, GenerationMode};
 
@@ -43,10 +43,9 @@ pub fn versioning_graph(config: &State<Arc<AppConfig>>) -> RawJson<String> {
     let dir = config_dir(&config.settings_path);
     let dir_str = dir.to_str().unwrap_or(".");
     let g = activation_graph(dir_str);
-    RawJson(
-        serde_json::to_string(&g)
-            .unwrap_or_else(|_| r#"{"commits":[],"head":"","currentBranch":""}"#.to_string()),
-    )
+    RawJson(serde_json::to_string(&g).unwrap_or_else(|_| {
+        r#"{"commits":[],"head":"","currentBranch":"","dirty":false}"#.to_string()
+    }))
 }
 
 /// Enabled/disabled services from `settings.toml` at a revision.
@@ -75,14 +74,11 @@ pub fn versioning_diff(config: &State<Arc<AppConfig>>, a: &str, b: &str) -> RawH
         Ok(diff) => {
             if diff.trim().is_empty() {
                 RawHtml(
-                    r#"<div class="text-sm opacity-60">No differences in settings.toml</div>"#
+                    r#"<div class="text-sm text-base-content/60 py-6 text-center">No differences in settings.toml</div>"#
                         .to_string(),
                 )
             } else {
-                RawHtml(format!(
-                    r#"<pre class="text-xs font-mono overflow-auto max-h-[40vh] bg-base-300 p-2 rounded whitespace-pre">{}</pre>"#,
-                    escape_html(&diff)
-                ))
+                RawHtml(diff_html(&diff))
             }
         }
         Err(e) => RawHtml(format!(

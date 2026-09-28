@@ -5,44 +5,16 @@ use rocket::{get, post, State};
 
 use crate::commands::web::action_bar::{action_bar_dynamic_element, broadcast_action_bar};
 use crate::commands::web::git_ops::{dirty_state, get_settings_toml_diff};
-use crate::commands::web::settings::restore_settings_from_applied;
+use crate::commands::web::settings::discard_pending_changes;
 use crate::commands::web::structs::AppConfig;
 use crate::commands::web::trigger::trigger_activation;
-use crate::commands::web::util::{alert_html, changes_actions_row, escape_html, AlertKind};
+use crate::commands::web::util::{
+    alert_html, changes_actions_row, diff_html, escape_html, AlertKind,
+};
 
 #[get("/changes/action-bar")]
 pub fn changes_action_bar(config: &State<Arc<AppConfig>>) -> RawHtml<String> {
     RawHtml(action_bar_dynamic_element(&config, false))
-}
-
-/// Unified diff as one line per span, tinted by +/-/@@ (styles: `.neo-diff` in input.css).
-fn diff_html(diff: &str) -> String {
-    let mut out = String::from(
-        r#"<pre class="neo-diff rounded-box border border-base-300 bg-base-200/60 py-2 overflow-auto max-h-[55vh]">"#,
-    );
-    for line in diff.lines() {
-        let class = if line.starts_with("+++")
-            || line.starts_with("---")
-            || line.starts_with("diff ")
-            || line.starts_with("index ")
-        {
-            "meta"
-        } else if line.starts_with('+') {
-            "add"
-        } else if line.starts_with('-') {
-            "del"
-        } else if line.starts_with("@@") {
-            "hunk"
-        } else {
-            ""
-        };
-        out.push_str(&format!(
-            r#"<span class="{class}">{}</span>"#,
-            escape_html(line)
-        ));
-    }
-    out.push_str("</pre>");
-    out
 }
 
 fn summary_heading(title: &str, sub: &str) -> String {
@@ -81,14 +53,14 @@ pub fn changes_summary(config: &State<Arc<AppConfig>>) -> RawHtml<String> {
 
 #[post("/changes/revert")]
 pub fn revert_settings(config: &State<Arc<AppConfig>>) -> RawHtml<String> {
-    match restore_settings_from_applied(&config) {
+    match discard_pending_changes(&config) {
         Ok(()) => RawHtml(alert_html(
             AlertKind::Success,
-            "Reverted via paste-settings. Close and reload options to see state.",
+            "Pending changes discarded — back to the last committed configuration.",
         )),
         Err(e) => RawHtml(alert_html(
             AlertKind::Error,
-            &format!("Revert failed: {}", e),
+            &format!("Discard failed: {}", e),
         )),
     }
 }

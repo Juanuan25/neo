@@ -900,6 +900,7 @@
 
   meta = tryOr {} (configRoot.meta or {});
   units = tryOr [] (configRoot.systemdUnits or []);
+  timers = tryOr [] (configRoot.systemdTimers or []);
   # Present only when the evaluated system actually has neo-<service>.target.
   # Missing attr (`?`) rather than `or`, so a lookup does not define the target.
   groupUnit = let
@@ -923,6 +924,7 @@ in {
     else meta;
   options = sorted;
   units = units;
+  timers = timers;
   groupUnit = groupUnit;
   containers = containers;
   appdata = appdata;

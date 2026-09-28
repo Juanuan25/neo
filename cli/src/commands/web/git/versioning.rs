@@ -149,6 +149,7 @@ pub fn activation_graph(config_path: &str) -> VersioningGraph {
         commits,
         head,
         current_branch,
+        dirty: super::is_worktree_dirty(config_path),
     }
 }
 

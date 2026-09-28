@@ -20,8 +20,8 @@
       </div>
       <ul class="rounded-box border border-base-300 divide-y divide-base-300/70">
         {{#each units}}
-          <li class="unit-row flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 px-3 py-2.5" data-unit="{{name}}">
-            <span class="font-mono text-xs sm:text-sm break-all min-w-0">{{name}}</span>
+          <li class="unit-row flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 px-3 py-2.5" data-unit="{{name}}"{{#if is_timer}} data-timer{{/if}}>
+            <span class="font-mono text-xs sm:text-sm break-all min-w-0">{{name}}{{#if is_timer}} <span class="badge badge-ghost badge-xs font-sans align-middle" title="Runs on a schedule; idle between runs">scheduled</span>{{/if}}</span>
             <div class="hidden sm:block flex-1"></div>
             <div class="flex items-center gap-2 min-w-0 flex-wrap">
               <div id="unit-controls-{{name}}" class="unit-controls flex items-center gap-1 flex-shrink-0">

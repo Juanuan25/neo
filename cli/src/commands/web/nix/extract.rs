@@ -53,6 +53,8 @@ struct RawPane {
     options: Vec<OptionSchema>,
     #[serde(default)]
     units: Vec<String>,
+    #[serde(default)]
+    timers: Vec<String>,
     #[serde(default, rename = "groupUnit")]
     group_unit: Option<String>,
     #[serde(default)]
@@ -102,6 +104,7 @@ impl PaneTarget {
 
 fn map_units(
     units: Vec<String>,
+    timers: &[String],
     containers: &std::collections::HashMap<String, String>,
 ) -> Vec<RuntimeUnit> {
     units
@@ -113,7 +116,12 @@ fn map_units(
                 name.as_str()
             };
             let is_container = containers.contains_key(bare) || name.starts_with("docker-");
-            RuntimeUnit { name, is_container }
+            let is_timer = timers.contains(&name);
+            RuntimeUnit {
+                name,
+                is_container,
+                is_timer,
+            }
         })
         .collect()
 }
@@ -267,7 +275,7 @@ impl NixEvaluator {
         super::sections::label_options(&mut opts);
         let sections = super::sections::build_sections(&opts);
         let options_json = serde_json::to_string(&opts).unwrap_or_else(|_| "[]".to_string());
-        let units = map_units(raw.units, &raw.containers);
+        let units = map_units(raw.units, &raw.timers, &raw.containers);
         let inv_urls: Vec<String> = raw.plugin_inventory.iter().map(|p| p.url.clone()).collect();
         let plugins = plugin_badges(&raw.plugin_urls, &inv_urls);
         let plugin_inventory_json =

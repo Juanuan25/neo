@@ -1,6 +1,7 @@
 //! Git plumbing and versioning helpers for the web UI.
 mod dirty;
 mod plumbing;
+pub(crate) use plumbing::git_stdout;
 mod versioning;
 
 pub use dirty::{dirty_state, is_worktree_dirty, DirtyState};

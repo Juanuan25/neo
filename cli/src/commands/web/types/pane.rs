@@ -34,6 +34,9 @@ pub struct RuntimeUnit {
     /// True for docker-* units (or units backed by the containers registry); these get a manual docker update (pull) button.
     #[serde(default)]
     pub is_container: bool,
+    /// Timer-backed oneshot (`systemdTimers`): inactive between runs is healthy.
+    #[serde(default)]
+    pub is_timer: bool,
 }
 
 /// One settings section in the option pane: "General" (ungrouped options,

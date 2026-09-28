@@ -1,5 +1,6 @@
 //! Web utility primitives: escaping, validation, paths, alerts, HTMX, in-flight sets.
 mod alerts;
+mod diff;
 mod escape;
 mod htmx;
 mod inflight;
@@ -8,6 +9,7 @@ mod paths;
 mod validate;
 
 pub use alerts::{alert_html, changes_actions_row, AlertKind};
+pub use diff::diff_html;
 pub use escape::{escape_attr, escape_html, escape_nix_string};
 pub use htmx::Htmx;
 pub use inflight::InFlightSet;

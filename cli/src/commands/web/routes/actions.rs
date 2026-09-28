@@ -5,7 +5,7 @@ use rocket::{post, State};
 
 use crate::commands::web::action_bar::broadcast_action_bar;
 use crate::commands::web::routes::changes::apply_or_activate;
-use crate::commands::web::settings::restore_settings_from_applied;
+use crate::commands::web::settings::discard_pending_changes;
 use crate::commands::web::structs::AppConfig;
 use crate::commands::web::trigger::trigger_update;
 use crate::commands::web::util::{alert_html, AlertKind};
@@ -24,14 +24,14 @@ pub fn actions_activate(config: &State<Arc<AppConfig>>) -> RawHtml<String> {
 
 #[post("/actions/reset")]
 pub fn actions_reset(config: &State<Arc<AppConfig>>) -> RawHtml<String> {
-    match restore_settings_from_applied(&config) {
+    match discard_pending_changes(&config) {
         Ok(()) => RawHtml(alert_html(
             AlertKind::Success,
-            "Reset done (settings restored from /etc/neo). Close to refresh state.",
+            "Pending changes discarded — back to the last committed configuration.",
         )),
         Err(e) => RawHtml(alert_html(
             AlertKind::Error,
-            &format!("Reset failed: {}", e),
+            &format!("Discard failed: {}", e),
         )),
     }
 }

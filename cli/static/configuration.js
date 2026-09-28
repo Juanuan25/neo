@@ -328,11 +328,16 @@ window.servicesGrid = function servicesGrid() {
     },
 
     cardVisible(el) {
+      return this.cardMatches(el, null);
+    },
+
+    /** Match against every filter except `skip` ('category' | 'plugin'). */
+    cardMatches(el, skip) {
       // Read every filter up front so Alpine tracks all of them as dependencies.
       var q = this.q.trim().toLowerCase();
       var status = this.status;
-      var category = this.category;
-      var plugin = this.plugin;
+      var category = skip === 'category' ? 'all' : this.category;
+      var plugin = skip === 'plugin' ? 'all' : this.plugin;
       var enabled = el.dataset.enabled === 'true';
       if (status === 'installed' && !enabled) return false;
       if (status === 'available' && enabled) return false;
@@ -349,6 +354,26 @@ window.servicesGrid = function servicesGrid() {
         }
       }
       return true;
+    },
+
+    /** Category chip is offered when some card in it matches the other filters. */
+    categoryAvailable(cat) {
+      if (cat === this.category) return true;
+      var self = this;
+      return Array.prototype.some.call(this.$root.querySelectorAll('[data-svc]'), function (c) {
+        return c.dataset.cat === cat && self.cardMatches(c, 'category');
+      });
+    },
+
+    /** Source option is offered when some card from it matches the other filters. */
+    pluginAvailable(url) {
+      if (url === this.plugin) return true;
+      var self = this;
+      return Array.prototype.some.call(this.$root.querySelectorAll('[data-svc]'), function (c) {
+        var urls = (c.dataset.pluginUrls || '').split('|').filter(Boolean);
+        var from = url === 'core' ? urls.length === 0 : urls.indexOf(url) !== -1;
+        return from && self.cardMatches(c, 'plugin');
+      });
     },
 
     visibleCount(section) {
@@ -653,14 +678,6 @@ window.servicesGrid = function servicesGrid() {
         (t.closest && t.closest('#config-content') && t.id === 'options-pane')
       ) {
         syncConfigShellFromContent();
-        // Versioning partial includes an inline init; call again in case script tags
-        // were skipped by HTMX, or to refresh data after re-entry.
-        if (
-          typeof window.neoInitVersioning === 'function' &&
-          document.getElementById('versioning-root')
-        ) {
-          window.neoInitVersioning();
-        }
         requestAnimationFrame(function () {
           unlockConfigContentHeight();
           // Opening/closing the option pane (or switching tabs) replaces the main
@@ -1078,12 +1095,16 @@ window.servicesGrid = function servicesGrid() {
       var st = ctrls[i].getAttribute('data-active-state');
       if (!st) continue;
       known++;
+      // Timer-backed oneshots idle between runs; only a failure counts against them.
+      var timer = ctrls[i].closest('.unit-row').hasAttribute('data-timer');
+      if (timer && st !== 'failed') { total--; known--; continue; }
       if (st === 'active') active++;
       else if (st === 'failed') failed++;
       else if (st === 'activating' || st === 'deactivating' || st === 'reloading') busy++;
     }
     var state, text;
     if (known < total) { state = 'unknown'; text = 'checking…'; }
+    else if (total === 0 && !failed) { state = 'ok'; text = 'idle'; }
     else if (failed) { state = 'failed'; text = failed === 1 ? '1 failed' : failed + ' failed'; }
     else if (busy) { state = 'busy'; text = 'changing…'; }
     else if (active === total) { state = 'ok'; text = 'running'; }

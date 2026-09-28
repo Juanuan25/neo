@@ -76,9 +76,9 @@
                 x-model="plugin"
                 aria-label="Filter by source">
           <option value="all">All sources</option>
-          <option value="core">Core</option>
+          <option value="core" x-show="pluginAvailable('core')" :disabled="!pluginAvailable('core')">Core</option>
           {{#each plugin_filters}}
-          <option value="{{url}}">{{display}}</option>
+          <option value="{{url}}" x-show="pluginAvailable($el.value)" :disabled="!pluginAvailable($el.value)">{{display}}</option>
           {{/each}}
         </select>
       {{/if}}
@@ -94,6 +94,7 @@
           <button type="button"
                   class="btn btn-xs sm:btn-sm rounded-full shrink-0 font-normal"
                   data-cat="{{this}}"
+                  x-show="categoryAvailable($el.dataset.cat)"
                   :class="category === $el.dataset.cat ? 'btn-neutral' : 'btn-ghost bg-base-100 border-base-300'"
                   @click="category = category === $el.dataset.cat ? 'all' : $el.dataset.cat">{{this}}</button>
         {{/each}}
