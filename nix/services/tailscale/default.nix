@@ -172,6 +172,9 @@
               Restart = "on-failure";
               RestartSec = 5;
               StartLimitIntervalSec = 0;
+              # Oneshot default is infinity. A stuck start holds
+              # neo-tailscale.target in its activating job.
+              TimeoutStartSec = "1min";
             };
             script = ''
               set -euo pipefail
@@ -197,8 +200,10 @@
                 done < ${namesFile}
               } > "$conf_dir/zone.conf.tmp"
               mv "$conf_dir/zone.conf.tmp" "$conf_dir/zone.conf"
+              # Never block this unit on dnsmasq: we are ordered Before=dnsmasq.
+              # listen-address= changes need a full restart; reload does not rebind.
               if systemctl is-active --quiet dnsmasq.service; then
-                systemctl restart dnsmasq.service
+                systemctl --no-block try-restart dnsmasq.service
               fi
             '';
           };
