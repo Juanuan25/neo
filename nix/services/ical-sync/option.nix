@@ -9,6 +9,13 @@
     with {inherit (lib.neo) mkOption mkEnableOption;}; let
       domain = config.neo.services.swag.domain or null;
       rusticalSub = config.neo.services.rustical.subdomain or "rustical";
+      # The vdirsyncer timer is installed only when a subscription exists
+      # (see services.vdirsyncer in default.nix). An empty list keeps the
+      # service target from synthesizing a stub unit.
+      icalUnits =
+        if (config.neo.services.ical-sync.subscriptions or []) == []
+        then []
+        else ["vdirsyncer@ical-sync"];
       defaultCaldavUrl =
         if domain != null && domain != ""
         then "https://${rusticalSub}.${domain}/caldav"
@@ -80,7 +87,8 @@
                 rank = 50;
               };
             }
-            // lib.neo.mkSystemdUnits ["vdirsyncer@ical-sync"]
+            // lib.neo.mkSystemdUnits icalUnits
+            // lib.neo.mkSystemdTimers icalUnits
             // lib.neo.mkServiceMeta {
               category = "Utilities";
               iframeCompatible = false;

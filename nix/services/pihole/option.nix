@@ -38,7 +38,7 @@
             }
             // lib.neo.mkContainerDefinitions {
               pihole = "pihole/pihole:latest";
-              extraUnits = ["pihole-update-gravity"];
+              timerUnits = ["pihole-update-gravity"];
             }
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/pihole"
             // lib.neo.mkServiceMeta {

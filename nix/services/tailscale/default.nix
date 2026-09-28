@@ -138,9 +138,13 @@
             allowedUDPPorts = [53];
           };
 
+          # Wants, not Requires: stopping tailscale-split-dns (it BindsTo
+          # tailscaled, and the Tailscale target stops tailscaled) must not
+          # take dnsmasq down with it. dnsmasq is host DNS; its zone is under
+          # /run and its leases are under /var/lib/dnsmasq, not Neo appdata.
           systemd.services.dnsmasq = {
             after = ["tailscale-split-dns.service"];
-            requires = ["tailscale-split-dns.service"];
+            wants = ["tailscale-split-dns.service"];
           };
 
           systemd.services.tailscale-split-dns = {

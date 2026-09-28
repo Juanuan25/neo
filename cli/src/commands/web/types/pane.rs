@@ -55,6 +55,10 @@ pub struct OptionPaneContext {
     /// Systemd units (without .service) declared for this neo service (for status/logs/control UI).
     #[serde(default)]
     pub units: Vec<RuntimeUnit>,
+    /// `neo-<service>.target` when this service has a group target. Controls for it
+    /// sit on the runtime-units frame; the target is not one of `units`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_unit: Option<String>,
     /// Current container name -> image map for this service (from containers registry; editable in form).
     #[serde(default)]
     pub containers: std::collections::HashMap<String, String>,

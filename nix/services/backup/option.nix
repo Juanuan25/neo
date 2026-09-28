@@ -57,6 +57,7 @@
               extraOptionsDescription = "Additional SSH options for the rsync connection";
             }
             // lib.neo.mkSystemdUnits ["backup"]
+            // lib.neo.mkSystemdTimers ["backup"]
             // lib.neo.mkServiceMeta {
               category = "Files";
               icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/borg.svg";

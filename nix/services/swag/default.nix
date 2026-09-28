@@ -226,6 +226,8 @@
               ++ customProxyConfScripts
               ++ proxyPassConfScripts
               ++ edgeConfScripts);
+            # swag-patcher is PartOf this unit, so the SWAG service target
+            # reaches it by stopping or restarting docker-swag once.
             wants = ["swag-patcher.service"];
           };
 

@@ -843,6 +843,17 @@
 
   meta = tryOr {} (configRoot.meta or {});
   units = tryOr [] (configRoot.systemdUnits or []);
+  # Present only when the evaluated system actually has neo-<service>.target.
+  # Missing attr (`?`) rather than `or`, so a lookup does not define the target.
+  groupUnit = let
+    nixosConfig = f.nixosConfigurations.${cfg}.config;
+    target = "neo-${service}";
+  in
+    if service == null
+    then null
+    else if nixosConfig.systemd.targets ? ${target}
+    then "${target}.target"
+    else null;
   containers = tryOr {} (configRoot.containers or {});
   appdata = tryOr null (configRoot.appdata or null);
   appdataRoot = tryOr null (
@@ -855,6 +866,7 @@ in {
     else meta;
   options = sorted;
   units = units;
+  groupUnit = groupUnit;
   containers = containers;
   appdata = appdata;
   appdataRoot = appdataRoot;

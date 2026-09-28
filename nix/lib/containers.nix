@@ -6,12 +6,16 @@
       # Declares a fixed set of container image options (containers.<name> : str).
       # Only the image string is overridable; keys cannot be added or removed from settings.
       # Optional `rank` (default 300) places the whole containers.* block among top-level siblings.
-      # Pass extraUnits for non-docker systemd units; do not call mkSystemdUnits after this.
+      # Pass extraUnits for non-docker systemd units.
+      # Pass timerUnits for timer-backed oneshots: they stay in the unit list,
+      # and the service target arms the timer instead of starting the job.
+      # Do not call mkSystemdUnits after this.
       mkContainerDefinitions = argset:
         with lib; let
           extraUnits = argset.extraUnits or [];
+          timerUnits = argset.timerUnits or [];
           rank = argset.rank or 300;
-          containers = removeAttrs argset ["extraUnits" "rank"];
+          containers = removeAttrs argset ["extraUnits" "rank" "timerUnits"];
           dockerUnits = map (n: "docker-${n}") (attrNames containers);
         in {
           containers =
@@ -35,9 +39,16 @@
 
           systemdUnits = mkOption {
             type = types.listOf types.str;
-            default = dockerUnits ++ extraUnits;
+            default = dockerUnits ++ extraUnits ++ timerUnits;
             internal = true;
             description = "Systemd unit names (without .service) for this service's containers and extras; used by neo web UI.";
+          };
+
+          systemdTimers = mkOption {
+            type = types.listOf types.str;
+            default = timerUnits;
+            internal = true;
+            description = "Timer-backed units. The service target arms the matching .timer and does not start or restart the job.";
           };
         };
 
@@ -48,6 +59,18 @@
             default = units;
             internal = true;
             description = "Systemd unit names (without .service) managed by this service for neo web UI status/logs/control.";
+          };
+        };
+
+      # Subset of systemdUnits whose .timer the service target arms and stops.
+      # The matching .service is not started or restarted with the target.
+      mkSystemdTimers = timers:
+        with lib; {
+          systemdTimers = mkOption {
+            type = types.listOf types.str;
+            default = timers;
+            internal = true;
+            description = "Timer-backed units. The service target arms the matching .timer and does not start or restart the job.";
           };
         };
 

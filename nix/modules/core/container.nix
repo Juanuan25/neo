@@ -1,4 +1,6 @@
-# Every OCI container snapshots host DNS at start and then keeps that copy.
+# Shared policy for every OCI container unit.
+#
+# Host DNS. Every container snapshots host DNS at start and then keeps that copy.
 #
 # Docker writes /etc/resolv.conf from the host file when the container is
 # created. On bridge networks it then points the container at 127.0.0.11 and
@@ -18,6 +20,10 @@
 # accept-dns, the wait also requires tailscale's resolvconf registration, so
 # the snapshot is the host's MagicDNS resolver. No DNS option is exposed:
 # local containers use the host resolver.
+#
+# Stop. `docker stop` delivers SIGTERM. A container that does not exit 0 makes
+# `docker run` return 143, and systemd records the stop as failure. 143 is
+# SIGTERM, so it counts as a clean stop. Other crashes still restart.
 {lib, ...}: let
   # Polled by neo-host-dns.service. Tests set the NEO_* variables.
   waitBody = ''
@@ -99,7 +105,14 @@
             lib.nameValuePair container.serviceName {
               after = ["neo-host-dns.service"];
               wants = ["neo-host-dns.service"];
-              serviceConfig.ExecStartPre = [waitScript];
+              serviceConfig = {
+                ExecStartPre = [waitScript];
+                # `docker stop` delivers SIGTERM. A container that does not exit 0
+                # (selenium, supervisord) makes `docker run` return 143, and systemd
+                # records the stop as failure even though the container is gone.
+                # 143 is SIGTERM, so this is a clean stop. Other crashes still restart.
+                SuccessExitStatus = "143";
+              };
             }
         )
         config.virtualisation.oci-containers.containers)
@@ -180,12 +193,19 @@ in {
       && lib.elem "neo-host-dns.service" filebrowserWants
       && lib.hasInfix "NEO_WAIT_TAILSCALE=1" dnsScript
       && lib.hasInfix "neo-host-dns-wait" jellyfinPre;
+    # SIGTERM from docker stop must not leave the unit failed.
+    stopOk = (jellyfin.serviceConfig.SuccessExitStatus or "") == "143";
   in {
     checks.container-host-dns = pkgs.runCommand "container-host-dns" {} ''
       set -euo pipefail
       ${lib.optionalString (!orderingOk) ''
         echo "FAIL container units must wait for neo-host-dns, and tailscale accept-dns must be required" >&2
         echo "jellyfin after: ${lib.concatStringsSep " " (jellyfin.after or [])}" >&2
+        exit 1
+      ''}
+      ${lib.optionalString (!stopOk) ''
+        echo "FAIL docker stop (SIGTERM, exit 143) must be a successful container stop" >&2
+        echo "SuccessExitStatus: ${toString (jellyfin.serviceConfig.SuccessExitStatus or "")}" >&2
         exit 1
       ''}
       fail=0

@@ -4,6 +4,15 @@
   <div class="mb-2 sm:mb-3 p-1.5 sm:p-2 bg-base-200/60 rounded border border-base-300" id="runtime-units" data-units="{{#each units}}{{name}}{{#unless @last}} {{/unless}}{{/each}}">
     <div class="text-xs font-semibold mb-1.5 flex items-center gap-2 flex-wrap">
       <span>Runtime units</span>
+      {{#if group_unit}}
+        {{!-- Group target. Not a row: these three buttons wrap the member units.
+             systemctl needs the .target suffix; a bare name would look up a .service. --}}
+        <span class="unit-controls inline-flex items-center gap-1 font-normal">
+          <button type="button" class="btn btn-ghost btn-xs h-5 min-h-0 px-1.5" hx-post="/unit/start/{{group_unit}}" hx-swap="none" title="systemctl start {{group_unit}}">▶</button>
+          <button type="button" class="btn btn-ghost btn-xs h-5 min-h-0 px-1.5" hx-post="/unit/restart/{{group_unit}}" hx-swap="none" title="systemctl restart {{group_unit}}">⟳</button>
+          <button type="button" class="btn btn-ghost btn-xs h-5 min-h-0 px-1.5" hx-post="/unit/stop/{{group_unit}}" hx-swap="none" title="systemctl stop {{group_unit}}">⏹</button>
+        </span>
+      {{/if}}
       <span class="text-[10px] font-normal opacity-50">live via websocket</span>
       {{#if appdata}}
         <div class="flex-1"></div>

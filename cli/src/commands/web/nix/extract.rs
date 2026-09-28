@@ -53,6 +53,8 @@ struct RawPane {
     options: Vec<OptionSchema>,
     #[serde(default)]
     units: Vec<String>,
+    #[serde(default, rename = "groupUnit")]
+    group_unit: Option<String>,
     #[serde(default)]
     containers: std::collections::HashMap<String, String>,
     #[serde(default)]
@@ -189,6 +191,7 @@ impl NixEvaluator {
             is_core: target.is_core(),
             eval_error: EvalErrorUi::message(reason),
             units: vec![],
+            group_unit: None,
             containers: std::collections::HashMap::new(),
             appdata: None,
             appdata_root: None,
@@ -245,6 +248,7 @@ impl NixEvaluator {
                         f.can_flake_update,
                     ),
                     units: vec![],
+                    group_unit: None,
                     containers: std::collections::HashMap::new(),
                     appdata: None,
                     appdata_root: None,
@@ -273,6 +277,7 @@ impl NixEvaluator {
             is_core: target.is_core(),
             eval_error: raw.error.map(EvalErrorUi::message).unwrap_or_default(),
             units,
+            group_unit: raw.group_unit.filter(|u| !u.is_empty()),
             containers: raw.containers,
             appdata: raw.appdata.filter(|p| !p.is_empty()),
             appdata_root: raw.appdata_root.filter(|p| !p.is_empty()),

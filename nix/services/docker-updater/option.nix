@@ -23,6 +23,7 @@
               };
             }
             // lib.neo.mkSystemdUnits ["neo-docker-updater"]
+            // lib.neo.mkSystemdTimers ["neo-docker-updater"]
             // lib.neo.mkAppdata (lib.neo.mkUpdaterPaths config.neo.core.volumes.appdata).dockerHistoryDir
             // lib.neo.mkServiceMeta {
               category = "Core";
