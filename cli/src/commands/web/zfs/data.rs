@@ -6,9 +6,10 @@
 //! service, the config repo, and this web UI live on that dataset. The web UI
 //! schedules it with `neo:restore` on the pool and reboots.
 //!
-//! Optionally the boot generation is switched to the one that was active when
-//! the snapshot was taken, so restored settings and system match.
-use std::time::{Duration, UNIX_EPOCH};
+//! Optionally the boot generation is switched to the one that was running when
+//! the snapshot was taken ([`GenerationTimeline`]), so restored settings and
+//! system match.
+use std::time::Duration;
 
 use tokio::process::Command as AsyncCommand;
 
@@ -18,7 +19,10 @@ use super::{
     inherit_property, list_filesystems, list_snapshots, now_epoch, now_ts, set_property,
     snapshot_kind, snapshot_name_ok, Snapshot,
 };
-use crate::utils::{current_generation_number, switch_system_generation, GenerationMode};
+use crate::utils::{
+    current_generation_number, running_generation_number, switch_system_generation, GenerationMode,
+    GenerationTimeline,
+};
 
 const PROP_RESTORE: &str = "neo:restore";
 const PROP_RESULT: &str = "neo:restore-result";
@@ -65,46 +69,6 @@ fn ts_display(ts: &str) -> String {
     } else {
         ts.to_string()
     }
-}
-
-/// System generations with their creation time (profile link mtime).
-fn generations_by_time() -> Vec<(u64, i64)> {
-    let mut out = Vec::new();
-    let Ok(rd) = std::fs::read_dir("/nix/var/nix/profiles") else {
-        return out;
-    };
-    for e in rd.flatten() {
-        let name = e.file_name();
-        let Some(n) = name
-            .to_str()
-            .and_then(|s| s.strip_prefix("system-"))
-            .and_then(|s| s.strip_suffix("-link"))
-            .and_then(|s| s.parse::<u64>().ok())
-        else {
-            continue;
-        };
-        let Ok(meta) = std::fs::symlink_metadata(e.path()) else {
-            continue;
-        };
-        let t = meta
-            .modified()
-            .ok()
-            .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        out.push((n, t));
-    }
-    out.sort();
-    out
-}
-
-/// Generation that was active at `t`: the newest one created at or before it.
-/// (A later manual switch to an older generation is not visible here.)
-fn generation_at(gens: &[(u64, i64)], t: i64) -> Option<u64> {
-    gens.iter()
-        .filter(|(_, created)| *created <= t)
-        .max_by_key(|(n, created)| (*created, *n))
-        .map(|(n, _)| *n)
 }
 
 struct Banner {
@@ -161,10 +125,16 @@ pub async fn render_card(notice: Option<(&'static str, String)>) -> String {
         });
     }
 
-    let gens = tokio::task::spawn_blocking(generations_by_time)
-        .await
-        .unwrap_or_default();
-    let current_gen = current_generation_number();
+    let sudo = sudo_cmd();
+    let (timeline, running_gen, boot_gen) = tokio::task::spawn_blocking(move || {
+        (
+            GenerationTimeline::load(&sudo),
+            running_generation_number(),
+            current_generation_number(),
+        )
+    })
+    .await
+    .unwrap_or_default();
     let now = now_epoch();
     let busy = pending.is_some();
 
@@ -180,12 +150,12 @@ pub async fn render_card(notice: Option<(&'static str, String)>) -> String {
 <div class="p-2 space-y-2 text-sm">
 <div class="text-[11px] opacity-70 leading-snug">
   Restores <b>all Neo data</b> (appdata of every service, the configuration repo, and anything else on this dataset) by rebooting and swapping the dataset during boot.
-  <b>Files only:</b> the NixOS system is not snapshotted and stays on the current generation{cur}.
-  Either run <i>Activate</i> afterwards to rebuild from the restored settings, or use <i>+ boot gen</i> to also boot the generation that was active when the snapshot was taken.
+  <b>Files only:</b> the NixOS system is not snapshotted and boots its default generation{cur}.
+  Either run <i>Activate</i> afterwards to rebuild from the restored settings, or use <i>+ boot gen</i> to also boot the generation that was running when the snapshot was taken.
   The replaced state is kept below as <i>before restore</i>, so a restore can be undone.
 </div>"##,
         live = escape_html(&live),
-        cur = current_gen.map(|g| format!(" ({g})")).unwrap_or_default(),
+        cur = boot_gen.map(|g| format!(" ({g})")).unwrap_or_default(),
     );
 
     for b in &banners {
@@ -195,10 +165,20 @@ pub async fn render_card(notice: Option<(&'static str, String)>) -> String {
         ));
     }
 
+    if let (Some(run), Some(boot)) = (running_gen, boot_gen) {
+        if run != boot {
+            banners.push(Banner {
+                tone: "alert-info",
+                html: format!("<span>Running system generation {run}; the next boot starts generation {boot}.</span>"),
+            });
+        }
+    }
+
     let ctx = RowCtx {
         live: &live,
-        gens: &gens,
-        current_gen,
+        timeline: &timeline,
+        running_gen,
+        boot_gen,
         now,
         busy,
     };
@@ -233,8 +213,11 @@ pub async fn render_card(notice: Option<(&'static str, String)>) -> String {
 
 struct RowCtx<'a> {
     live: &'a str,
-    gens: &'a [(u64, i64)],
-    current_gen: Option<u64>,
+    timeline: &'a GenerationTimeline,
+    /// Generation running now (`/run/current-system`).
+    running_gen: Option<u64>,
+    /// Boot default (system profile): what a reboot starts without `+ boot gen`.
+    boot_gen: Option<u64>,
     now: i64,
     busy: bool,
 }
@@ -272,7 +255,7 @@ fn snapshot_table(title: &str, ds: &str, list: &[Snapshot], ctx: &RowCtx) -> Str
 fn data_row(s: &Snapshot, ctx: &RowCtx) -> String {
     let (kind, badge) = snapshot_kind(&s.name);
     let when = format_epoch_utc(s.creation);
-    let gen = generation_at(ctx.gens, s.creation);
+    let gen = ctx.timeline.at(s.creation);
 
     let base_warning = format!(
         "RESTORE ALL NEO DATA to {full} ({when})?\n\n\
@@ -293,19 +276,19 @@ fn data_row(s: &Snapshot, ctx: &RowCtx) -> String {
         actions.push_str(r#"<button type="button" class="btn btn-xs btn-disabled" disabled title="A restore is already scheduled">Restore</button>"#);
     } else {
         let data_only = format!(
-            "{base_warning}\n• FILES ONLY: the system stays on generation {cur}. Run Activate afterwards if the restored settings should be applied.",
+            "{base_warning}\n• FILES ONLY: the system boots its default generation {cur}. Run Activate afterwards if the restored settings should be applied.",
             cur = ctx
-                .current_gen
+                .boot_gen
                 .map(|g| g.to_string())
                 .unwrap_or_else(|| "(current)".into()),
         );
         actions.push_str(&format!(
-            r##"<button type="button" class="btn btn-xs btn-warning" hx-post="/versioning/zfs/restore?{q}" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data only; keep the current system generation">Restore</button>"##,
+            r##"<button type="button" class="btn btn-xs btn-warning" hx-post="/versioning/zfs/restore?{q}" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data only; boot the default system generation">Restore</button>"##,
             c = escape_attr(&data_only),
         ));
-        if let Some(g) = gen.filter(|g| Some(*g) != ctx.current_gen) {
+        if let Some(g) = gen.filter(|g| Some(*g) != ctx.boot_gen) {
             let with_gen = format!(
-                "{base_warning}\n• The boot default is set to system generation {g} (active when the snapshot was taken) before the reboot."
+                "{base_warning}\n• The boot default is set to system generation {g} (running when the snapshot was taken) before the reboot."
             );
             actions.push_str(&format!(
                 r##" <button type="button" class="btn btn-xs btn-error" hx-post="/versioning/zfs/restore?{q}&gen={g}" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data and boot system generation {g}">+ boot gen {g}</button>"##,
@@ -316,10 +299,10 @@ fn data_row(s: &Snapshot, ctx: &RowCtx) -> String {
 
     let gen_cell = match gen {
         // No system profile (dev VM, non-NixOS): nothing to match against.
-        _ if ctx.gens.is_empty() => String::new(),
-        Some(g) if Some(g) == ctx.current_gen => format!(r#"gen {g} <span class="opacity-50">(current)</span>"#),
+        _ if ctx.timeline.is_empty() => String::new(),
+        Some(g) if Some(g) == ctx.running_gen => format!(r#"gen {g} <span class="opacity-50">(running)</span>"#),
         Some(g) => format!("gen {g}"),
-        None => r#"<span class="opacity-50" title="No surviving generation is older than this snapshot">gen ?</span>"#.to_string(),
+        None => r#"<span class="opacity-50" title="The system running at that time has no surviving generation">gen ?</span>"#.to_string(),
     };
 
     format!(
@@ -479,15 +462,6 @@ mod tests {
             prev_suffix("zroot/neo", "zroot/neox.prev-20260928-101500"),
             None
         );
-    }
-
-    #[test]
-    fn generation_matching() {
-        let gens = [(10, 100), (11, 200), (12, 300)];
-        assert_eq!(generation_at(&gens, 50), None);
-        assert_eq!(generation_at(&gens, 200), Some(11));
-        assert_eq!(generation_at(&gens, 250), Some(11));
-        assert_eq!(generation_at(&gens, 1000), Some(12));
     }
 
     #[test]

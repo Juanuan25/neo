@@ -118,6 +118,18 @@
       ${homeserverSshKey}/bin/neo-homeserver-ssh-key ensure
     '';
 
+    # Which system ran when (boot, switch, test; not `boot`-only switches), so
+    # ZFS data snapshots map to the generation that was actually running
+    # (cli/src/utils/generation.rs). On the root fs: a data restore keeps it.
+    system.activationScripts.neo-system-history = ''
+      mkdir -p /var/lib/neo
+      log=/var/lib/neo/system-activations
+      echo "$(date +%s) $systemConfig" >> "$log"
+      if [ "$(wc -l < "$log")" -gt 5000 ]; then
+        tail -n 2000 "$log" > "$log.tmp" && mv "$log.tmp" "$log"
+      fi
+    '';
+
     nix = let
       rb = cfg.nix.remoteBuild;
     in

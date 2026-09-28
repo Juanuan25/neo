@@ -867,9 +867,14 @@
         }
         var rows = gens
           .map(function (g) {
-            var cur = g.isCurrent
-              ? ' <span class="badge badge-success badge-xs">current</span>'
-              : '';
+            // current = boot default; running differs after a boot-only switch
+            var cur = '';
+            if (g.isRunning)
+              cur += ' <span class="badge badge-success badge-xs">running</span>';
+            if (g.isCurrent && !g.isRunning)
+              cur += ' <span class="badge badge-warning badge-xs" title="Started at the next boot">next boot</span>';
+            else if (g.isCurrent && !gens.some(function (x) { return x.isRunning; }))
+              cur = ' <span class="badge badge-success badge-xs">current</span>';
             // Prefer server-provided 24h date string from nix-env
             var dateStr = g.date || '';
             return (
