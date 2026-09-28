@@ -1,102 +1,155 @@
-{{!-- Versioning tab: overview strip + History / System / Data tabs.
-     State and rendering live in versioningPage() (static/versioning.js); the
-     data-snapshots panel is the server-rendered ZFS card (/versioning/zfs). --}}
+{{!-- Versioning tab: status strip + one combined timeline of the configuration
+     history (git, left graph, circles) and the system lineage (NixOS
+     generations, right graph, squares), plus the Data snapshots tab.
+     State and drawing live in versioningPage() (static/versioning.js, data from
+     GET /versioning/tree); the data-snapshots panel is the server-rendered ZFS
+     card (/versioning/zfs). --}}
 <div id="versioning-root"
      class="space-y-5 sm:space-y-6"
      x-data="versioningPage()"
      @keydown.escape.window="onEscape()">
-  <div>
-    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight">Versioning</h2>
-    <p class="text-sm text-base-content/60 mt-0.5">Every activation saves a version of your server. Look back, compare, or restore an earlier one.</p>
+  <div class="flex items-start gap-3">
+    <div class="min-w-0 flex-1">
+      <h2 class="text-xl sm:text-2xl font-semibold tracking-tight">Versioning</h2>
+      <p class="text-sm text-base-content/60 mt-0.5">Your settings and the systems built from them, on one timeline. Look back, compare, restore or roll back.</p>
+    </div>
+    <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300 shrink-0" @click="refresh()" :disabled="loading || loadingMore" title="Reload history and generations">
+      <span x-show="loading || loadingMore" class="loading loading-spinner loading-xs"></span>
+      <svg x-show="!loading && !loadingMore" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true"><path d="M20 11a8 8 0 00-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0014.5 4.5L20 16M20 20v-4h-4"/></svg>
+      <span class="hidden sm:inline">Refresh</span>
+    </button>
   </div>
 
-  {{!-- Overview --}}
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
-    <div class="rounded-box border border-base-300 bg-base-100 p-3 sm:p-4 flex items-start gap-3 min-w-0">
-      <span class="w-9 h-9 shrink-0 rounded-xl bg-success/15 text-success flex items-center justify-center">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
-      </span>
-      <div class="min-w-0">
-        <div class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">Current version</div>
-        <template x-if="headEntry()">
-          <div>
-            <div class="font-semibold text-sm sm:text-base truncate" x-text="'Activated ' + relTime(headEntry().time)"></div>
-            <div class="text-xs text-base-content/60 truncate">
-              <span x-text="fullTime(headEntry().time)"></span>
-              · <span class="font-mono" x-text="headEntry().short"></span>
-            </div>
-          </div>
-        </template>
-        <template x-if="!headEntry()">
-          <div class="text-sm text-base-content/50" x-text="loading ? 'Loading…' : 'No activation yet'"></div>
-        </template>
-      </div>
-    </div>
-
-    <div class="rounded-box border border-base-300 bg-base-100 p-3 sm:p-4 flex items-start gap-3 min-w-0">
-      <span class="w-9 h-9 shrink-0 rounded-xl bg-base-200 text-base-content/70 flex items-center justify-center">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><path d="M12 3l8 4.5-8 4.5-8-4.5L12 3z"/><path d="M4 12l8 4.5 8-4.5M4 16.5L12 21l8-4.5"/></svg>
-      </span>
-      <div class="min-w-0">
-        <div class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">Running system</div>
-        <template x-if="runningGen()">
-          <div>
-            <div class="font-semibold text-sm sm:text-base" x-text="'Generation ' + runningGen().number"></div>
-            <div class="text-xs text-base-content/60 truncate">
-              <template x-if="bootGen() && bootGen().number !== runningGen().number">
-                <span class="text-warning" x-text="'Next boot starts generation ' + bootGen().number"></span>
-              </template>
-              <template x-if="!bootGen() || bootGen().number === runningGen().number">
-                <span x-text="'Since ' + genRel(runningGen())"></span>
-              </template>
-            </div>
-          </div>
-        </template>
-        <template x-if="!runningGen()">
-          <div class="text-sm text-base-content/50" x-text="gensLoading ? 'Loading…' : 'Not available'"></div>
-        </template>
-      </div>
-    </div>
-
-    <div class="hidden sm:flex rounded-box border bg-base-100 p-3 sm:p-4 items-start gap-3 min-w-0"
-         :class="dirty ? 'border-warning/50' : 'border-base-300'">
-      <span class="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center"
-            :class="dirty ? 'bg-warning/15 text-warning' : 'bg-base-200 text-base-content/70'">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17v3z"/><path d="M14 7l3 3"/></svg>
+  {{!-- ─── Status strip: settings · running system · verdict ─── --}}
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-2 sm:gap-3">
+    {{!-- Settings (configuration) --}}
+    <div class="rounded-box border bg-base-100 p-3 sm:p-4 flex items-start gap-3 min-w-0"
+         :class="tree && tree.dirty ? 'border-warning/50' : 'border-base-300'">
+      <span class="w-9 h-9 shrink-0 rounded-xl bg-primary/12 text-primary flex items-center justify-center" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="w-5 h-5"><circle cx="12" cy="12" r="5.5" fill="currentColor"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".45"/></svg>
       </span>
       <div class="min-w-0 flex-1">
-        <div class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">Unapplied changes</div>
-        <div class="font-semibold text-sm sm:text-base" x-text="dirty ? 'Changes pending' : 'None'"></div>
-        <div class="text-xs text-base-content/60" x-show="!dirty">Everything is activated.</div>
-        <button type="button" class="btn btn-xs btn-ghost bg-base-100 border-base-300 mt-1" x-show="dirty" x-cloak @click="reviewPending()">Review changes</button>
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">Current settings</div>
+        <template x-if="headCommit()">
+          <div>
+            <div class="font-semibold text-sm sm:text-base truncate">
+              Version <span class="font-mono" x-text="headCommit().short"></span>
+            </div>
+            <div class="text-xs text-base-content/60 truncate" :title="fullTime(headCommit().timestamp)" x-text="'Saved ' + relTime(headCommit().timestamp)"></div>
+          </div>
+        </template>
+        <template x-if="!headCommit()">
+          <div class="text-sm text-base-content/50" x-text="loading ? 'Loading…' : (tree && tree.headShort ? 'Version ' + tree.headShort : 'No saved version yet')"></div>
+        </template>
+        <div x-show="tree && tree.dirty" x-cloak class="mt-1.5 flex items-center gap-2 flex-wrap">
+          <span class="badge badge-soft badge-warning badge-sm">Unapplied changes</span>
+          <button type="button" class="btn btn-xs btn-ghost bg-base-100 border-base-300" @click="reviewPending()">Review</button>
+        </div>
+      </div>
+    </div>
+
+    {{!-- Running system --}}
+    <div class="rounded-box border border-base-300 bg-base-100 p-3 sm:p-4 flex items-start gap-3 min-w-0">
+      <span class="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center" aria-hidden="true"
+            :class="status().running ? 'bg-success/15 text-success' : 'bg-secondary/12 text-secondary'">
+        <svg viewBox="0 0 24 24" class="w-5 h-5"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor"/><rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".45"/></svg>
+      </span>
+      <div class="min-w-0 flex-1">
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">Running system</div>
+        <template x-if="status().running">
+          <div>
+            <div class="font-semibold text-sm sm:text-base">
+              <button type="button" class="link link-hover" @click="jumpToGen(status().running)" x-text="'Generation ' + status().running"></button>
+            </div>
+            <div class="text-xs text-base-content/60 truncate">
+              <span x-show="status().runningSince" x-text="'Since ' + relTime(status().runningSince)"></span>
+              <template x-if="status().runningCommit">
+                <span>· from <button type="button" class="link link-hover text-primary font-mono" @click="jumpToCommit(status().runningCommit.id)" x-text="status().runningCommit.short"></button></span>
+              </template>
+            </div>
+            <div x-show="status().nextBoot" x-cloak class="text-xs text-warning mt-0.5" x-text="'Next boot starts generation ' + status().nextBoot"></div>
+          </div>
+        </template>
+        <template x-if="!status().running">
+          <div class="text-sm text-base-content/50" x-text="loading ? 'Loading…' : 'Not available on this machine'"></div>
+        </template>
+      </div>
+    </div>
+
+    {{!-- Verdict --}}
+    <div class="rounded-box border bg-base-100 p-3 sm:p-4 flex items-start gap-3 min-w-0"
+         :class="{
+           'border-success/40': status().kind === 'sync',
+           'border-warning/50': status().kind === 'drift' || status().kind === 'unbuilt',
+           'border-base-300': ['sync','drift','unbuilt'].indexOf(status().kind) < 0
+         }">
+      <span class="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center" aria-hidden="true"
+            :class="status().kind === 'sync' ? 'bg-success/15 text-success' : (status().kind === 'drift' || status().kind === 'unbuilt' ? 'bg-warning/15 text-warning' : 'bg-base-200 text-base-content/60')">
+        <svg x-show="status().kind === 'sync'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        <svg x-show="status().kind === 'drift' || status().kind === 'unbuilt'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5"><path d="M12 8v5M12 16.5v.01"/><path d="M10.3 4.2L2.6 17.5A2 2 0 004.3 20.5h15.4a2 2 0 001.7-3L13.7 4.2a2 2 0 00-3.4 0z"/></svg>
+        <svg x-show="['sync','drift','unbuilt'].indexOf(status().kind) < 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" class="w-5 h-5"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8v.01"/></svg>
+      </span>
+      <div class="min-w-0 flex-1 text-xs text-base-content/65 space-y-1">
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">Status</div>
+        <template x-if="loading">
+          <div class="text-sm text-base-content/50">Loading…</div>
+        </template>
+        <template x-if="!loading && status().kind === 'sync'">
+          <div>
+            <div class="font-semibold text-sm sm:text-base text-base-content">In sync</div>
+            <p>The running system was built from your current settings.</p>
+          </div>
+        </template>
+        <template x-if="!loading && status().kind === 'drift'">
+          <div class="space-y-1.5">
+            <div class="font-semibold text-sm sm:text-base text-base-content">Running an older version</div>
+            <p>
+              <span x-text="'Generation ' + status().running"></span> was built from
+              <template x-if="status().runningCommit"><span>version <button type="button" class="link link-hover text-primary font-mono" @click="jumpToCommit(status().runningCommit.id)" x-text="status().runningCommit.short"></button></span></template><template x-if="!status().runningCommit"><span>another version</span></template>, not from your current settings.
+            </p>
+            <button type="button" x-show="status().headGeneration" class="btn btn-xs btn-ghost bg-base-100 border-base-300" @click="switchGen(status().headGeneration)" x-text="'Switch to generation ' + status().headGeneration + ' (current settings)'"></button>
+          </div>
+        </template>
+        <template x-if="!loading && status().kind === 'unbuilt'">
+          <div class="space-y-1.5">
+            <div class="font-semibold text-sm sm:text-base text-base-content">Current settings not built</div>
+            <p>Your current settings have never been activated, so no system runs them yet.</p>
+            <button type="button" class="btn btn-xs btn-primary" @click="activateCurrent()">Activate now</button>
+          </div>
+        </template>
+        <template x-if="!loading && status().kind === 'unknown'">
+          <div>
+            <div class="font-semibold text-sm sm:text-base text-base-content">Unknown origin</div>
+            <p>The running system can't be matched to a saved version (built outside Neo, or history not loaded).</p>
+          </div>
+        </template>
+        <template x-if="!loading && status().kind === 'unavailable'">
+          <div>
+            <div class="font-semibold text-sm sm:text-base text-base-content">Settings history only</div>
+            <p x-text="(tree && tree.system && tree.system.message) || 'System generations are not available on this machine.'"></p>
+          </div>
+        </template>
       </div>
     </div>
   </div>
 
-  {{!-- Section tabs --}}
-  <div role="tablist" class="tabs tabs-box tabs-sm sm:tabs-md w-fit max-w-full flex-nowrap neo-scroll-x" aria-label="Versioning sections">
-    <button type="button" role="tab" class="tab gap-1.5 shrink-0" :class="{ 'tab-active': tab === 'history' }" @click="setTab('history')">
-      History <span class="text-[11px] opacity-50 tabular-nums" x-text="activationCount()"></span>
-    </button>
-    <button type="button" role="tab" class="tab gap-1.5 shrink-0" :class="{ 'tab-active': tab === 'system' }" @click="setTab('system')">
-      System generations <span class="text-[11px] opacity-50 tabular-nums" x-text="gens.length || ''"></span>
-    </button>
-    <button type="button" role="tab" class="tab gap-1.5 shrink-0" x-show="zfsAvailable" x-cloak :class="{ 'tab-active': tab === 'data' }" @click="setTab('data')">
-      Data snapshots
-    </button>
+  {{!-- Section tabs (only when data snapshots exist) --}}
+  <div x-show="zfsAvailable" x-cloak role="tablist" class="tabs tabs-box tabs-sm sm:tabs-md w-fit max-w-full flex-nowrap neo-scroll-x" aria-label="Versioning sections">
+    <button type="button" role="tab" class="tab gap-1.5 shrink-0" :class="{ 'tab-active': tab === 'timeline' }" @click="setTab('timeline')">Timeline</button>
+    <button type="button" role="tab" class="tab gap-1.5 shrink-0" :class="{ 'tab-active': tab === 'data' }" @click="setTab('data')">Data snapshots</button>
   </div>
 
-  {{!-- ─── History ─── --}}
-  <div x-show="tab === 'history'" class="space-y-4">
+  {{!-- ─── Timeline ─── --}}
+  <section x-show="tab === 'timeline' || !zfsAvailable" class="space-y-3" aria-label="Version timeline">
     <div class="flex flex-wrap items-center gap-2">
-      <p class="text-xs sm:text-sm text-base-content/60 min-w-0 w-full sm:w-auto sm:flex-1">
-        <span x-show="!compare">Select a version to see what changed and restore it.</span>
-        <span x-show="compare" x-cloak>Pick two versions to compare <span class="text-base-content/40" x-text="'(' + picks.length + '/2)'"></span>.</span>
+      <p class="text-xs sm:text-sm text-base-content/60 min-w-0 flex-1">
+        <span x-show="!compare" class="hidden sm:inline">Select an entry for details and actions.</span>
+        <span x-show="compare" x-cloak>Pick two settings versions to compare <span class="text-base-content/40" x-text="'(' + picks.length + '/2)'"></span>.</span>
       </p>
-      <label class="label text-xs gap-2 cursor-pointer mr-auto sm:mr-0">
-        <input type="checkbox" class="toggle toggle-xs" x-model="showAll">
-        Show builds &amp; other commits
-      </label>
+      <button type="button" class="btn btn-sm btn-ghost gap-1.5" :aria-expanded="legendOpen" @click="toggleLegend()">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" class="w-4 h-4" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-.9.6-1.5 1.1-1.5 2.2M12 16.8v.01"/></svg>
+        <span x-text="legendOpen ? 'Hide guide' : 'How to read this'"></span>
+      </button>
       <button type="button"
               class="btn btn-sm gap-1.5"
               :class="compare ? 'btn-neutral' : 'btn-ghost bg-base-100 border-base-300'"
@@ -106,144 +159,331 @@
       </button>
     </div>
 
+    {{!-- Legend --}}
+    <div x-show="legendOpen" x-cloak class="rounded-box border border-base-300 bg-base-100 p-3 sm:p-4 grid gap-4 md:grid-cols-2 text-xs text-base-content/70">
+      <div class="space-y-2">
+        <div class="flex items-center gap-2 font-semibold text-sm text-base-content">
+          <svg viewBox="0 0 16 16" class="w-4 h-4 vt-cfg" aria-hidden="true"><circle class="vt-dot" cx="8" cy="8" r="5"/></svg>
+          Settings history <span class="font-normal text-base-content/50">· left</span>
+        </div>
+        <p>Every activation saves your settings as a <strong>version</strong>. Restoring an older version and changing it again starts a new branch — the line splits where you went back.</p>
+        <ul class="space-y-1.5">
+          <li class="flex items-center gap-2"><svg viewBox="0 0 24 24" class="w-5 h-5 shrink-0 vt-cfg" aria-hidden="true"><circle class="vt-ring-head" cx="12" cy="12" r="9"/><circle class="vt-dot" cx="12" cy="12" r="6"/></svg>Current settings</li>
+          <li class="flex items-center gap-2"><svg viewBox="0 0 24 24" class="w-5 h-5 shrink-0 vt-cfg" aria-hidden="true"><circle class="vt-dot" cx="12" cy="12" r="5"/></svg>Activated version</li>
+          <li class="flex items-center gap-2"><svg viewBox="0 0 24 24" class="w-5 h-5 shrink-0 vt-cfg" aria-hidden="true"><circle class="vt-dot-hollow" cx="12" cy="12" r="3.5"/></svg>Intermediate commit (compare only)</li>
+          <li class="flex items-center gap-2"><svg viewBox="0 0 24 24" class="w-5 h-5 shrink-0 vt-cfg" aria-hidden="true"><circle class="vt-ring-run" cx="12" cy="12" r="9"/><circle class="vt-dot" cx="12" cy="12" r="5"/></svg>Version the running system was built from</li>
+          <li class="flex items-center gap-2"><svg viewBox="0 0 24 24" class="w-5 h-5 shrink-0 vt-cfg" aria-hidden="true"><circle class="vt-dot-pending" cx="12" cy="12" r="5.5"/></svg>Unapplied changes</li>
+        </ul>
+      </div>
+      <div class="space-y-2">
+        <div class="flex items-center gap-2 font-semibold text-sm text-base-content">
+          <svg viewBox="0 0 16 16" class="w-4 h-4 vt-sys" aria-hidden="true"><rect class="vt-sq" x="2.5" y="2.5" width="11" height="11" rx="2.5"/></svg>
+          System generations <span class="font-normal text-base-content/50">· right</span>
+        </div>
+        <p>Each activation builds a NixOS <strong>generation</strong> from a version (<span class="inline-flex items-center gap-1 align-middle"><span class="vt-link-line w-5 inline-block"></span>built</span>). Rolling back to an older generation and building again starts a new branch there.</p>
+        <ul class="space-y-1.5">
+          <li class="flex items-center gap-2"><svg viewBox="0 0 24 24" class="w-5 h-5 shrink-0 vt-sys" aria-hidden="true"><rect class="vt-sq vt-sq-run" x="6.5" y="6.5" width="11" height="11" rx="2.5"/></svg>Running now</li>
+          <li class="flex items-center gap-2"><svg viewBox="0 0 24 24" class="w-5 h-5 shrink-0 vt-sys" aria-hidden="true"><rect class="vt-sq" x="6.5" y="6.5" width="11" height="11" rx="2.5"/></svg>Generation</li>
+          <li class="flex items-center gap-2"><svg viewBox="0 0 24 24" class="w-5 h-5 shrink-0 vt-sys" aria-hidden="true"><rect class="vt-ring-boot" x="3" y="3" width="18" height="18" rx="4.5"/><rect class="vt-sq" x="6.5" y="6.5" width="11" height="11" rx="2.5"/></svg>Starts at next boot</li>
+          <li class="flex items-center gap-2"><svg viewBox="0 0 24 24" class="w-5 h-5 shrink-0 vt-sys" aria-hidden="true"><path class="vt-diamond" d="M12,6.5 L17.5,12 L12,17.5 L6.5,12 Z"/></svg>Switched / rolled back to an existing generation</li>
+        </ul>
+      </div>
+    </div>
+
+    {{!-- Column heads --}}
+    <div x-show="!loading && !error && rows().length" class="flex items-center justify-between gap-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
+      <span class="flex items-center gap-1.5"><svg viewBox="0 0 12 12" class="w-3 h-3 vt-cfg" aria-hidden="true"><circle class="vt-dot" cx="6" cy="6" r="4"/></svg>Settings</span>
+      <span class="flex items-center gap-1.5" x-show="systemAvailable()">System<svg viewBox="0 0 12 12" class="w-3 h-3 vt-sys" aria-hidden="true"><rect class="vt-sq" x="1.5" y="1.5" width="9" height="9" rx="2"/></svg></span>
+    </div>
+
     {{!-- Loading / error / empty --}}
     <div x-show="loading" class="flex items-center justify-center gap-2 py-12 text-sm text-base-content/50">
       <span class="loading loading-spinner loading-sm"></span> Loading history…
     </div>
     <div x-show="error" x-cloak role="alert" class="alert alert-error alert-soft text-sm" x-text="error"></div>
-    <div x-show="!loading && !error && !entries().length && !dirty" x-cloak
+    <div x-show="!loading && !error && !rows().length" x-cloak
          class="flex flex-col items-center text-center gap-2 py-14 rounded-box border border-dashed border-base-content/15">
       <div class="font-semibold text-sm">No versions yet</div>
       <p class="text-xs text-base-content/60">Activate your configuration to save the first version.</p>
     </div>
 
-    {{!-- Pending changes row --}}
-    <div x-show="dirty && !loading" x-cloak
-         class="rounded-box border border-dashed border-warning/60 bg-warning/5 px-3 sm:px-4 py-3 flex items-center gap-3">
-      <span class="w-9 h-9 shrink-0 rounded-xl bg-warning/15 text-warning flex items-center justify-center">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="8.5"/></svg>
-      </span>
-      <div class="min-w-0 flex-1">
-        <div class="font-semibold text-sm">Not activated yet</div>
-        <div class="text-xs text-base-content/60">Your saved settings differ from the current version. Activate to save them as a new version.</div>
-      </div>
-      <button type="button" class="btn btn-sm btn-ghost shrink-0" @click="reviewPending()">Review</button>
+    {{!-- The timeline: rows are HTML; both graphs are SVG overlays in the gutters. --}}
+    <div x-show="!loading && rows().length" class="rounded-box border border-base-300 bg-base-100 overflow-hidden">
+      <ol x-ref="list" class="vt-list relative">
+        <svg x-ref="cfgSvg" class="vt-svg vt-cfg absolute left-0 top-0" aria-hidden="true"></svg>
+        <svg x-ref="sysSvg" class="vt-svg vt-sys absolute right-0 top-0" aria-hidden="true"></svg>
+        <template x-for="it in items()" :key="it.key">
+          <li :data-row="it.type === 'row' ? it.index : null" :data-key="it.type === 'row' ? it.row.key : null">
+            {{!-- Day separator --}}
+            <template x-if="it.type === 'day'">
+              <div class="vt-day flex items-center gap-2.5 pt-3 pb-1" :style="rowPad()">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50 pl-2" x-text="dayLabel(it.ts)"></span>
+                <span class="flex-1 h-px bg-base-content/8 mr-2" aria-hidden="true"></span>
+              </div>
+            </template>
+
+            {{!-- Entry --}}
+            <template x-if="it.type === 'row'">
+              <div class="vt-row" :class="rowClass(it.row)" :style="rowPad()">
+                <button type="button"
+                        class="vt-head w-full text-left flex flex-col sm:flex-row sm:items-start gap-x-3 gap-y-1 px-2 py-2 rounded-field focus-visible:outline-2 focus-visible:outline-primary"
+                        :aria-expanded="expanded === it.row.key"
+                        @click="onRow(it.row)"
+                        @mouseenter="hover(it.row)"
+                        @mouseleave="hl = null">
+                  {{!-- Settings side --}}
+                  <span class="vt-part min-w-0 sm:max-w-[52%] flex flex-col" x-show="it.row.pending || it.row.commit">
+                    <template x-if="it.row.pending">
+                      <span class="flex flex-col min-w-0">
+                        <span data-cfg-anchor class="h-6 flex items-center gap-1.5 min-w-0">
+                          <span class="font-semibold text-sm text-warning">Unapplied changes</span>
+                        </span>
+                        <span class="text-xs text-base-content/60">Saved but not activated yet · click to review</span>
+                      </span>
+                    </template>
+                    <template x-if="it.row.commit">
+                      <span class="flex flex-col min-w-0">
+                        <span data-cfg-anchor class="h-6 flex items-center gap-1.5 min-w-0">
+                          <template x-if="compare">
+                            <span class="w-5 h-5 shrink-0 rounded-full border-2 flex items-center justify-center text-[10px] font-bold"
+                                  :class="pickIndex(it.row.commit.id) === 0 ? 'bg-primary border-primary text-primary-content' : pickIndex(it.row.commit.id) === 1 ? 'bg-secondary border-secondary text-secondary-content' : 'border-base-content/25'"
+                                  x-text="pickIndex(it.row.commit.id) === 0 ? 'A' : pickIndex(it.row.commit.id) === 1 ? 'B' : ''"></span>
+                          </template>
+                          <span class="font-semibold text-sm truncate"
+                                :class="{ 'text-base-content/65 font-medium': it.row.commit.kind !== 'activation' }"
+                                x-text="commitTitle(it.row.commit)"></span>
+                          <span x-show="it.row.commit.isHead" class="badge badge-soft badge-primary badge-xs shrink-0">Current settings</span>
+                        </span>
+                        <span class="text-xs text-base-content/55 truncate">
+                          <span x-text="commitKindLabel(it.row.commit)"></span>
+                          · <span x-text="clock(it.row.commit.timestamp)" :title="fullTime(it.row.commit.timestamp)"></span>
+                          · <span class="font-mono" x-text="it.row.commit.short"></span>
+                        </span>
+                      </span>
+                    </template>
+                  </span>
+
+                  {{!-- Connector: this version built that generation --}}
+                  <span class="vt-link hidden sm:flex flex-1 min-w-8 h-6 items-center gap-1.5 text-base-content/35" x-show="linked(it.row)" aria-hidden="true">
+                    <span class="vt-link-line flex-1"></span>
+                    <span class="text-[10px] font-semibold uppercase tracking-wider">built</span>
+                    <span class="vt-link-line flex-1"></span>
+                    <svg viewBox="0 0 8 8" class="w-2 h-2 -ml-1.5"><path d="M1 1l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+                  </span>
+                  <span class="hidden sm:block flex-1" x-show="!linked(it.row)"></span>
+
+                  {{!-- System side --}}
+                  <template x-if="it.row.system">
+                    <span class="vt-part min-w-0 flex flex-col sm:items-end sm:text-right">
+                      <span data-sys-anchor class="h-6 flex items-center gap-1.5 min-w-0 sm:flex-row-reverse">
+                        <span class="sm:hidden text-base-content/35 text-xs" x-show="linked(it.row)" aria-hidden="true">↳ built</span>
+                        <span class="font-semibold text-sm truncate"
+                              :class="{ 'text-base-content/75 font-medium': it.row.system.type === 'switch' }"
+                              x-text="sysTitle(it.row.system)"></span>
+                        <span x-show="it.row.system.isRunning || it.row.system.isLatest" class="badge badge-soft badge-success badge-xs shrink-0">Running now</span>
+                        <span x-show="it.row.system.isBoot && !it.row.system.isRunning" class="badge badge-soft badge-warning badge-xs shrink-0">Next boot</span>
+                      </span>
+                      <span class="text-xs text-base-content/55 truncate max-w-full">
+                        <span x-text="sysSubtitle(it.row)"></span>
+                        <template x-if="!it.row.commit">
+                          <span>· <span x-text="clock(rowTime(it.row))" :title="fullTime(rowTime(it.row))"></span></span>
+                        </template>
+                      </span>
+                    </span>
+                  </template>
+                  <template x-if="!it.row.system && it.row.commit && genNote(it.row.commit)">
+                    <span class="vt-part min-w-0 flex flex-col sm:items-end sm:text-right">
+                      <span class="sm:h-6 flex items-center text-xs text-base-content/45 italic" x-text="genNote(it.row.commit)"></span>
+                    </span>
+                  </template>
+                </button>
+
+                {{!-- Details --}}
+                <template x-if="expanded === it.row.key && !compare">
+                  <div class="vt-detail grid gap-2.5 px-2 pb-3 pt-1" :class="{ 'lg:grid-cols-2': it.row.commit && (it.row.system || it.row.commit.generation) }">
+                    {{!-- Settings card --}}
+                    <template x-if="it.row.commit">
+                      <div class="rounded-box border border-base-300 bg-base-100 p-3 space-y-2.5 min-w-0">
+                        <div class="flex items-start gap-2">
+                          <svg viewBox="0 0 16 16" class="w-4 h-4 mt-0.5 shrink-0 vt-cfg" aria-hidden="true"><circle class="vt-dot" cx="8" cy="8" r="5"/></svg>
+                          <div class="min-w-0">
+                            <div class="font-semibold text-sm">Settings version <span class="font-mono" x-text="it.row.commit.short"></span></div>
+                            <div class="text-xs text-base-content/60">
+                              <span x-text="fullTime(it.row.commit.timestamp)"></span> · <span x-text="relTime(it.row.commit.timestamp)"></span>
+                              <template x-if="it.row.commit.kind === 'other'"><span x-text="' · ' + it.row.commit.subject"></span></template>
+                            </div>
+                          </div>
+                        </div>
+
+                        <template x-if="it.row.commit.changes && !it.row.commit.changes.initial && !it.row.commit.changes.unchanged">
+                          <div class="flex flex-wrap items-center gap-1.5">
+                            <template x-for="s in it.row.commit.changes.added" :key="'+' + s">
+                              <span class="badge badge-soft badge-success badge-sm font-mono" x-text="'+ ' + s" title="Enabled in this version"></span>
+                            </template>
+                            <template x-for="s in it.row.commit.changes.removed" :key="'-' + s">
+                              <span class="badge badge-soft badge-error badge-sm font-mono" x-text="'− ' + s" title="Disabled in this version"></span>
+                            </template>
+                            <template x-for="s in it.row.commit.changes.changed.concat(it.row.commit.changes.sections)" :key="'~' + s">
+                              <span class="badge badge-ghost badge-sm font-mono" x-text="'~ ' + s" title="Settings changed"></span>
+                            </template>
+                          </div>
+                        </template>
+                        <p x-show="it.row.commit.changes && it.row.commit.changes.unchanged" class="text-xs text-base-content/60">Same settings as the previous version (activated again).</p>
+
+                        <template x-if="svc(it.row.commit.id) && !svc(it.row.commit.id).error">
+                          <details class="group">
+                            <summary class="cursor-pointer list-none text-xs text-base-content/60 hover:text-base-content inline-flex items-center gap-1">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5 transition-transform group-open:rotate-90" aria-hidden="true"><path fill-rule="evenodd" d="M7.2 14.8a.75.75 0 010-1.06L10.94 10 7.2 6.26a.75.75 0 111.06-1.06l4.27 4.27a.75.75 0 010 1.06L8.26 14.8a.75.75 0 01-1.06 0z" clip-rule="evenodd"/></svg>
+                              <span x-text="svc(it.row.commit.id).enabled.length + ' services enabled'"></span>
+                            </summary>
+                            <div class="flex flex-wrap gap-1 mt-2">
+                              <template x-for="s in svc(it.row.commit.id).enabled" :key="s">
+                                <span class="badge badge-ghost badge-sm font-mono" x-text="s"></span>
+                              </template>
+                            </div>
+                          </details>
+                        </template>
+                        <template x-if="svc(it.row.commit.id) && svc(it.row.commit.id).error">
+                          <p class="text-xs text-error" x-text="svc(it.row.commit.id).error"></p>
+                        </template>
+
+                        <ul class="text-xs text-base-content/65 space-y-0.5">
+                          <li x-show="it.row.commit.isHead">These are your current settings.</li>
+                          <li x-show="it.row.commit.isRunningConfig" class="text-success">The running system was built from this version.</li>
+                          <li x-show="!it.row.commit.isTip && !it.row.commit.isHead">Intermediate commit — it can be compared but not restored.</li>
+                          <li x-show="it.row.commit.lane > 0">On a side branch: later versions continue from another version.</li>
+                        </ul>
+
+                        <div class="flex flex-wrap items-center gap-2">
+                          <template x-if="it.row.commit.isTip && !it.row.commit.isHead">
+                            <button type="button" class="btn btn-sm btn-primary gap-1.5" @click="restore(it.row.commit)">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg>
+                              Restore these settings
+                            </button>
+                          </template>
+                          <template x-if="prevFor(it.row.commit)">
+                            <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" @click="showDiff(prevFor(it.row.commit), it.row.commit.id, 'What changed')">What changed</button>
+                          </template>
+                          <template x-if="!it.row.commit.isHead && tree.head">
+                            <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" @click="showDiff(it.row.commit.id, tree.head, 'Compared with current settings')">Compare with current</button>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+
+                    {{!-- Unapplied changes --}}
+                    <template x-if="it.row.pending">
+                      <div class="rounded-box border border-dashed border-warning/60 bg-warning/5 p-3 text-xs space-y-2">
+                        <p>Your saved settings differ from the current version. Activate to save them as a new version and build a new system.</p>
+                        <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" @click="reviewPending()">Review changes</button>
+                      </div>
+                    </template>
+
+                    {{!-- System card: generation --}}
+                    <template x-if="it.row.system && it.row.system.type === 'generation'">
+                      <div class="rounded-box border border-base-300 bg-base-100 p-3 space-y-2.5 min-w-0">
+                        <div class="flex items-start gap-2">
+                          <svg viewBox="0 0 16 16" class="w-4 h-4 mt-0.5 shrink-0 vt-sys" aria-hidden="true"><rect class="vt-sq" :class="{ 'vt-sq-run': it.row.system.isRunning }" x="2.5" y="2.5" width="11" height="11" rx="2.5"/></svg>
+                          <div class="min-w-0">
+                            <div class="font-semibold text-sm flex items-center gap-1.5 flex-wrap">
+                              <span x-text="'System generation ' + it.row.system.number"></span>
+                              <span x-show="it.row.system.isRunning" class="badge badge-soft badge-success badge-xs">Running now</span>
+                              <span x-show="it.row.system.isBoot && !it.row.system.isRunning" class="badge badge-soft badge-warning badge-xs">Next boot</span>
+                            </div>
+                            <div class="text-xs text-base-content/60"><span x-text="fullTime(it.row.system.created)"></span> · <span x-text="relTime(it.row.system.created)"></span></div>
+                          </div>
+                        </div>
+                        <dl class="text-xs grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                          <dt class="text-base-content/50">Built from</dt>
+                          <dd class="min-w-0">
+                            <template x-if="it.row.system.builtFrom">
+                              <span>
+                                <template x-if="it.row.commit && it.row.commit.id === it.row.system.builtFrom.id"><span>the settings version on this row</span></template>
+                                <template x-if="!it.row.commit || it.row.commit.id !== it.row.system.builtFrom.id">
+                                  <span>version <button type="button" class="link link-hover text-primary font-mono" @click="jumpToCommit(it.row.system.builtFrom.id)" x-text="it.row.system.builtFrom.short"></button></span>
+                                </template>
+                                <span x-show="it.row.system.builtFrom.how === 'inferred'" class="text-base-content/50" title="Not recorded by Neo's activation; derived from the settings that were current when this generation was built.">(likely — not recorded)</span>
+                              </span>
+                            </template>
+                            <span x-show="!it.row.system.builtFrom" class="text-base-content/60">Unknown — built outside Neo's activation</span>
+                          </dd>
+                          <template x-if="it.row.system.parentGen">
+                            <dt class="text-base-content/50">Built on</dt>
+                          </template>
+                          <template x-if="it.row.system.parentGen">
+                            <dd>
+                              <button type="button" class="link link-hover" @click="jumpToGen(it.row.system.parentGen)" x-text="'generation ' + it.row.system.parentGen"></button>
+                              <span x-show="it.row.system.branched" class="text-base-content/60"> — after a rollback, so it starts a new branch</span>
+                            </dd>
+                          </template>
+                          <template x-if="it.row.system.identicalTo">
+                            <dt class="text-base-content/50">Same as</dt>
+                          </template>
+                          <template x-if="it.row.system.identicalTo">
+                            <dd><button type="button" class="link link-hover" @click="jumpToGen(it.row.system.identicalTo)" x-text="'generation ' + it.row.system.identicalTo"></button> <span class="text-base-content/60">(identical system)</span></dd>
+                          </template>
+                        </dl>
+                        <p class="text-xs text-base-content/60" x-show="!it.row.system.isRunning">Switching changes the running system right away; your settings stay as they are.</p>
+                        <div class="flex flex-wrap items-center gap-2">
+                          <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" x-show="!it.row.system.isRunning" @click="switchGen(it.row.system.number)" x-text="'Switch to generation ' + it.row.system.number"></button>
+                          <span x-show="it.row.system.isRunning" class="text-xs text-base-content/60">This system is running now.</span>
+                        </div>
+                      </div>
+                    </template>
+
+                    {{!-- System card: switch / rollback --}}
+                    <template x-if="it.row.system && it.row.system.type === 'switch'">
+                      <div class="rounded-box border border-base-300 bg-base-100 p-3 space-y-2.5 min-w-0">
+                        <div class="flex items-start gap-2">
+                          <svg viewBox="0 0 16 16" class="w-4 h-4 mt-0.5 shrink-0 vt-sys" aria-hidden="true"><path class="vt-diamond" d="M8,2.5 L13.5,8 L8,13.5 L2.5,8 Z"/></svg>
+                          <div class="min-w-0">
+                            <div class="font-semibold text-sm" x-text="sysTitle(it.row.system)"></div>
+                            <div class="text-xs text-base-content/60"><span x-text="fullTime(it.row.system.time)"></span> · <span x-text="relTime(it.row.system.time)"></span></div>
+                          </div>
+                        </div>
+                        <p class="text-xs text-base-content/70">
+                          The running system changed<span x-show="it.row.system.from" x-text="' from generation ' + it.row.system.from"></span> to the existing generation <span x-text="it.row.system.to"></span> (a switch, reboot or data restore — nothing was rebuilt).
+                          Systems built afterwards continue from here, which is why the system line branches.
+                        </p>
+                        <div class="flex flex-wrap items-center gap-2">
+                          <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" @click="jumpToGen(it.row.system.to)" x-text="'Show generation ' + it.row.system.to"></button>
+                        </div>
+                      </div>
+                    </template>
+
+                    {{!-- System card: activation without its own generation --}}
+                    <template x-if="!it.row.system && it.row.commit && it.row.commit.generation">
+                      <div class="rounded-box border border-dashed border-base-300 p-3 space-y-2 min-w-0 text-xs text-base-content/70">
+                        <div class="flex items-center gap-2 font-semibold text-sm text-base-content">
+                          <svg viewBox="0 0 16 16" class="w-4 h-4 shrink-0 vt-sys" aria-hidden="true"><rect class="vt-sq" x="2.5" y="2.5" width="11" height="11" rx="2.5" opacity=".5"/></svg>
+                          <span x-text="'System generation ' + it.row.commit.generation"></span>
+                        </div>
+                        <p x-show="it.row.commit.genState === 'same'">No new system was built: this activation produced exactly the system of generation <span x-text="it.row.commit.generation"></span>.</p>
+                        <p x-show="it.row.commit.genState === 'missing'">This generation was deleted to free space. Restoring these settings builds it again.</p>
+                        <p x-show="it.row.commit.genState === 'created'">Built by this activation (shown on its own row).</p>
+                        <p x-show="it.row.commit.genState === 'unknown'">System generations are not visible on this machine.</p>
+                        <div class="flex flex-wrap gap-2" x-show="it.row.commit.genState === 'same' || it.row.commit.genState === 'created'">
+                          <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" @click="jumpToGen(it.row.commit.generation)" x-text="'Show generation ' + it.row.commit.generation"></button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </li>
+        </template>
+      </ol>
     </div>
 
-    {{!-- Day groups --}}
-    <template x-for="g in groups()" :key="g.key">
-      <section class="space-y-2">
-        <div class="flex items-center gap-2.5 px-0.5">
-          <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/55" x-text="g.label"></h3>
-          <div class="flex-1 h-px bg-base-content/10" aria-hidden="true"></div>
-        </div>
-        <ul class="rounded-box border border-base-300 bg-base-100 divide-y divide-base-300/70 overflow-hidden">
-          <template x-for="e in g.items" :key="e.id">
-            <li :class="{ 'bg-base-200/40': expanded === e.id && !compare }">
-              {{!-- Row --}}
-              <button type="button"
-                      class="w-full flex items-center gap-3 px-3 sm:px-4 py-2.5 text-left hover:bg-base-200/50 transition-colors focus-visible:outline-2 focus-visible:outline-primary"
-                      :aria-expanded="expanded === e.id"
-                      @click="onRow(e)">
-                <span class="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center"
-                      :class="e.isHead ? 'bg-success/15 text-success' : (e.kind === 'activation' ? 'bg-primary/10 text-primary' : 'bg-base-200 text-base-content/50')">
-                  <template x-if="e.kind === 'activation'">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4" aria-hidden="true"><path d="M8 5.6v12.8a1 1 0 001.5.9l10.2-6.4a1 1 0 000-1.7L9.5 4.7A1 1 0 008 5.6z"/></svg>
-                  </template>
-                  <template x-if="e.kind === 'build'">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg>
-                  </template>
-                  <template x-if="e.kind === 'other'">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="w-4 h-4" aria-hidden="true"><circle cx="12" cy="12" r="3.5"/><path d="M12 3v5.5M12 15.5V21"/></svg>
-                  </template>
-                </span>
-                <span class="min-w-0 flex-1">
-                  <span class="flex items-center gap-1.5 flex-wrap">
-                    <span class="font-semibold text-sm" :class="{ 'text-base-content/70 font-medium': e.kind !== 'activation' }" x-text="e.title"></span>
-                    <span x-show="e.isHead" class="badge badge-soft badge-success badge-xs">Current</span>
-                    <span x-show="e.gen && runningGen() && e.gen === runningGen().number" class="badge badge-soft badge-info badge-xs">Running</span>
-                    <span x-show="e.gen && bootGen() && runningGen() && e.gen === bootGen().number && bootGen().number !== runningGen().number" class="badge badge-soft badge-warning badge-xs">Next boot</span>
-                  </span>
-                  <span class="block text-xs text-base-content/55 truncate">
-                    <span x-text="clock(e.time)" :title="fullTime(e.time)"></span>
-                    · <span x-text="relTime(e.time)"></span>
-                    <template x-if="e.gen"><span x-text="' · Generation ' + e.gen"></span></template>
-                    · <span class="font-mono" x-text="e.short"></span>
-                  </span>
-                </span>
-                {{!-- Compare pick / expand chevron --}}
-                <template x-if="compare">
-                  <span class="w-6 h-6 shrink-0 rounded-full border-2 flex items-center justify-center text-[11px] font-bold"
-                        :class="pickIndex(e.id) === 0 ? 'bg-primary border-primary text-primary-content' : pickIndex(e.id) === 1 ? 'bg-secondary border-secondary text-secondary-content' : 'border-base-content/25'"
-                        x-text="pickIndex(e.id) === 0 ? 'A' : pickIndex(e.id) === 1 ? 'B' : ''"></span>
-                </template>
-                <template x-if="!compare">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 shrink-0 text-base-content/40 transition-transform" :class="{ 'rotate-90': expanded === e.id }" aria-hidden="true"><path fill-rule="evenodd" d="M7.2 14.8a.75.75 0 010-1.06L10.94 10 7.2 6.26a.75.75 0 111.06-1.06l4.27 4.27a.75.75 0 010 1.06L8.26 14.8a.75.75 0 01-1.06 0z" clip-rule="evenodd"/></svg>
-                </template>
-              </button>
-
-              {{!-- Detail --}}
-              <template x-if="expanded === e.id && !compare">
-                <div class="px-3 sm:px-4 pb-4 pt-1 sm:pl-16 space-y-3">
-                  <div>
-                    <div class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50 mb-1.5" x-text="e.prevId ? 'Changes in this version' : 'Services in this version'"></div>
-                    <template x-if="!svc(e.id) || (e.prevId && !svc(e.prevId))">
-                      <span class="loading loading-dots loading-xs opacity-50"></span>
-                    </template>
-                    <template x-if="svc(e.id) && svc(e.id).error">
-                      <span class="text-xs text-error" x-text="svc(e.id).error"></span>
-                    </template>
-                    <template x-if="e.prevId && svc(e.id) && svc(e.prevId) && !svc(e.id).error && !svc(e.prevId).error">
-                      <div class="flex flex-wrap items-center gap-1.5">
-                        <template x-for="s in added(e)" :key="'+' + s">
-                          <span class="badge badge-soft badge-success badge-sm font-mono" x-text="'+ ' + s" title="Enabled in this version"></span>
-                        </template>
-                        <template x-for="s in removed(e)" :key="'-' + s">
-                          <span class="badge badge-soft badge-error badge-sm font-mono" x-text="'− ' + s" title="Disabled in this version"></span>
-                        </template>
-                        <span x-show="!added(e).length && !removed(e).length" class="text-xs text-base-content/60">No services added or removed — only settings changed.</span>
-                        <button type="button" class="btn btn-xs btn-ghost text-primary" @click="showDiff(e.prevId, e.id, 'What changed')">Show changes</button>
-                      </div>
-                    </template>
-                  </div>
-
-                  <template x-if="svc(e.id) && !svc(e.id).error">
-                    <details class="group" :open="!e.prevId">
-                      <summary class="cursor-pointer list-none text-xs text-base-content/60 hover:text-base-content inline-flex items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5 transition-transform group-open:rotate-90" aria-hidden="true"><path fill-rule="evenodd" d="M7.2 14.8a.75.75 0 010-1.06L10.94 10 7.2 6.26a.75.75 0 111.06-1.06l4.27 4.27a.75.75 0 010 1.06L8.26 14.8a.75.75 0 01-1.06 0z" clip-rule="evenodd"/></svg>
-                        <span x-text="svc(e.id).enabled.length + ' services enabled'"></span>
-                      </summary>
-                      <div class="flex flex-wrap gap-1 mt-2">
-                        <template x-for="s in svc(e.id).enabled" :key="s">
-                          <span class="badge badge-ghost badge-sm font-mono" x-text="s"></span>
-                        </template>
-                      </div>
-                    </details>
-                  </template>
-
-                  <div class="flex flex-wrap items-center gap-2 pt-1">
-                    <template x-if="e.isTip && !e.isHead">
-                      <button type="button" class="btn btn-sm btn-primary gap-1.5" @click="restore(e)">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg>
-                        Restore this version
-                      </button>
-                    </template>
-                    <template x-if="!e.isHead && head">
-                      <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" @click="showDiff(e.id, head, 'Compared with current')">Compare with current</button>
-                    </template>
-                    <template x-if="canSwitchGen(e)">
-                      <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" @click="switchGen(e.gen)" x-text="'Switch system to generation ' + e.gen"></button>
-                    </template>
-                    <span x-show="e.isHead" class="text-xs text-base-content/60">You're on this version.</span>
-                    <span x-show="!e.isTip && !e.isHead" class="text-xs text-base-content/50">Intermediate commit — compare only.</span>
-                  </div>
-                </div>
-              </template>
-            </li>
-          </template>
-        </ul>
-      </section>
-    </template>
+    {{!-- Paging --}}
+    <div x-show="!loading && rows().length" class="flex flex-col items-center gap-1 pt-1">
+      <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" x-show="tree && tree.hasMore" :disabled="loadingMore" @click="showOlder()">
+        <span x-show="loadingMore" class="loading loading-spinner loading-xs"></span>
+        Show older
+      </button>
+      <span class="text-[11px] text-base-content/45" x-show="tree && !tree.hasMore">Beginning of history</span>
+    </div>
 
     {{!-- Compare bar --}}
     <div x-show="compare && picks.length" x-cloak
@@ -257,58 +497,10 @@
       <button type="button" class="btn btn-sm btn-ghost" @click="picks = []">Clear</button>
       <button type="button" class="btn btn-sm btn-primary" :disabled="picks.length !== 2" @click="showDiff(picks[0], picks[1], 'Compare versions')">Show differences</button>
     </div>
-  </div>
-
-  {{!-- ─── System generations ─── --}}
-  <div x-show="tab === 'system'" x-cloak class="space-y-3">
-    <div class="flex flex-wrap items-center gap-2">
-      <p class="text-xs sm:text-sm text-base-content/60 min-w-0 flex-1">
-        Each activation builds a NixOS system generation. Switching changes the running system right away without touching your settings.
-      </p>
-      <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" @click="loadGenerations()" :disabled="gensLoading">
-        <span x-show="gensLoading" class="loading loading-spinner loading-xs"></span>
-        Refresh
-      </button>
-    </div>
-    <div x-show="gensLoading && !gens.length" class="flex items-center justify-center gap-2 py-12 text-sm text-base-content/50">
-      <span class="loading loading-spinner loading-sm"></span> Loading generations…
-    </div>
-    <div x-show="gensMessage" x-cloak
-         class="flex flex-col items-center text-center gap-2 py-14 rounded-box border border-dashed border-base-content/15">
-      <div class="font-semibold text-sm">System generations unavailable</div>
-      <p class="text-xs text-base-content/60" x-text="gensMessage"></p>
-    </div>
-    <ul x-show="gens.length" class="rounded-box border border-base-300 bg-base-100 divide-y divide-base-300/70 overflow-hidden">
-      <template x-for="g in gens.slice(0, gensLimit)" :key="g.number">
-        <li class="flex items-center gap-3 px-3 sm:px-4 py-2.5">
-          <span class="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center font-mono text-xs font-semibold tabular-nums"
-                :class="g.isRunning ? 'bg-success/15 text-success' : 'bg-base-200 text-base-content/60'"
-                x-text="g.number"></span>
-          <span class="min-w-0 flex-1">
-            <span class="flex items-center gap-1.5 flex-wrap">
-              <span class="font-semibold text-sm" x-text="'Generation ' + g.number"></span>
-              <span x-show="g.isRunning" class="badge badge-soft badge-success badge-xs">Running</span>
-              <span x-show="g.isCurrent && !g.isRunning" class="badge badge-soft badge-warning badge-xs" title="Started at the next boot">Next boot</span>
-            </span>
-            <span class="block text-xs text-base-content/55 truncate">
-              <span x-text="g.date" class="tabular-nums"></span>
-              · <span x-text="genRel(g)"></span>
-              <template x-if="commitForGen(g.number)">
-                <span>· <button type="button" class="link link-hover text-primary" @click="openCommit(commitForGen(g.number).id)" x-text="'version ' + commitForGen(g.number).short"></button></span>
-              </template>
-            </span>
-          </span>
-          <button type="button" class="btn btn-sm btn-ghost shrink-0" x-show="!g.isRunning" @click="switchGen(g.number)">Switch</button>
-        </li>
-      </template>
-    </ul>
-    <div class="flex justify-center" x-show="gens.length > gensLimit">
-      <button type="button" class="btn btn-sm btn-ghost" @click="gensLimit += 25" x-text="'Show older (' + (gens.length - gensLimit) + ' more)'"></button>
-    </div>
-  </div>
+  </section>
 
   {{!-- ─── Data snapshots (server-rendered ZFS card, hidden when unavailable) ─── --}}
-  <div x-show="tab === 'data'" x-cloak>
+  <div x-show="tab === 'data' && zfsAvailable" x-cloak>
     <div id="versioning-zfs-host" x-ref="zfsHost"></div>
   </div>
 </div>

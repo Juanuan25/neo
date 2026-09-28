@@ -962,3 +962,118 @@ a.neo-sem-name:focus-visible {
     display: table;
   }
 }
+
+/*
+ * Versioning timeline (branches.html.hbs + static/versioning.js): settings
+ * history (left gutter, circles, primary) and system generations (right
+ * gutter, squares, secondary) drawn as SVG over HTML rows.
+ */
+.vt-svg {
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1;
+}
+.vt-cfg { color: var(--color-primary); }
+.vt-sys { color: var(--color-secondary); }
+.vt-edge {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+.vt-edge-side { opacity: 0.45; }
+.vt-edge-open { stroke-dasharray: 1.5 4; }
+.vt-edge-pending {
+  stroke: var(--color-warning);
+  stroke-dasharray: 3 3;
+  opacity: 1;
+}
+.vt-dot {
+  fill: currentColor;
+  stroke: var(--color-base-100);
+  stroke-width: 2.5;
+}
+.vt-dot-hollow {
+  fill: var(--color-base-100);
+  stroke: currentColor;
+  stroke-width: 1.75;
+}
+.vt-dot-pending {
+  fill: var(--color-base-100);
+  stroke: var(--color-warning);
+  stroke-width: 2;
+  stroke-dasharray: 2.6 2;
+}
+.vt-ring-head {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.45;
+}
+.vt-ring-run {
+  fill: none;
+  stroke: var(--color-success);
+  stroke-width: 1.75;
+  stroke-dasharray: 3 2.2;
+}
+.vt-sq {
+  fill: currentColor;
+  stroke: var(--color-base-100);
+  stroke-width: 2.5;
+}
+.vt-sq.vt-sq-run { fill: var(--color-success); }
+.vt-ring-boot {
+  fill: none;
+  stroke: var(--color-warning);
+  stroke-width: 1.75;
+  stroke-dasharray: 3 2;
+}
+.vt-halo {
+  fill: none;
+  stroke: var(--color-success);
+  stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: vt-halo 2.4s ease-out infinite;
+}
+@keyframes vt-halo {
+  0% { opacity: 0.7; transform: scale(1); }
+  100% { opacity: 0; transform: scale(2.2); }
+}
+.vt-diamond {
+  fill: var(--color-base-100);
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+}
+.vt-diamond.vt-diamond-now { fill: var(--color-success); stroke: var(--color-success); }
+.vt-sel {
+  fill: none;
+  stroke: var(--color-base-content);
+  stroke-opacity: 0.3;
+  stroke-width: 1.25;
+}
+.vt-link-line {
+  display: inline-block;
+  border-top: 1.5px dashed color-mix(in oklab, var(--color-base-content) 30%, transparent);
+  height: 0;
+}
+.vt-row { position: relative; }
+.vt-row > .vt-head { transition: background-color 0.12s ease; }
+.vt-row > .vt-head:hover,
+.vt-row.vt-open > .vt-head {
+  background-color: color-mix(in oklab, var(--color-base-200) 70%, transparent);
+}
+.vt-row.vt-hl > .vt-head {
+  background-color: color-mix(in oklab, var(--color-primary) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 25%, transparent);
+}
+.vt-row.vt-picked > .vt-head {
+  background-color: color-mix(in oklab, var(--color-primary) 7%, transparent);
+}
+.vt-list > li:last-child .vt-row { padding-bottom: 0.25rem; }
+@media (prefers-reduced-motion: reduce) {
+  .vt-halo { animation: none; opacity: 0.45; transform: scale(1.5); }
+  .vt-row > .vt-head { transition: none; }
+}

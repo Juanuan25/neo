@@ -51,6 +51,12 @@ fn parse_generation_from_link(link: &Path) -> Option<u64> {
     name.parse().ok()
 }
 
+/// True when this machine has a NixOS system profile (not local/dev).
+pub fn system_profile_available() -> bool {
+    let profile = Path::new(SYSTEM_PROFILE);
+    profile.exists() || profile.is_symlink()
+}
+
 /// Current system generation number, if resolvable.
 pub fn current_generation_number() -> Option<u64> {
     let link = std::fs::read_link(SYSTEM_PROFILE).ok()?;
@@ -278,6 +284,11 @@ impl GenerationTimeline {
             .map(|(t, path)| (t, generation_for_path(&links, &path, None, Some(t))))
             .collect();
         Self { links, events }
+    }
+
+    /// `(epoch, generation)` activation records, oldest first.
+    pub fn events(&self) -> &[(i64, Option<u64>)] {
+        &self.events
     }
 
     /// No generations on this machine (dev VM, non-NixOS).

@@ -16,6 +16,7 @@ use crate::commands::web::trigger::{trigger_activation, trigger_generation_switc
 use crate::commands::web::util::{
     branch_ok, config_dir, escape_html, generation_ok, rev_ok, sudo_cmd,
 };
+use crate::commands::web::version_tree;
 use crate::utils::{git_cmd, list_system_generations_with_sudo, GenerationMode};
 
 /// Shared branches / versioning partial (used by `/branches` and `/configuration/versioning`).
@@ -47,6 +48,29 @@ pub fn versioning_graph(config: &State<Arc<AppConfig>>) -> RawJson<String> {
     RawJson(serde_json::to_string(&g).unwrap_or_else(|_| {
         r#"{"commits":[],"head":"","currentBranch":"","dirty":false}"#.to_string()
     }))
+}
+
+/// Unified version tree: config commits + system generations on one timeline
+/// (lanes, commit ↔ generation links, sync status). `limit` = rows to return.
+#[get("/versioning/tree?<limit>")]
+pub async fn versioning_tree(
+    config: &State<Arc<AppConfig>>,
+    limit: Option<usize>,
+) -> RawJson<String> {
+    let dir = config_dir(&config.settings_path);
+    let dir_str = dir.to_str().unwrap_or(".").to_string();
+    let limit = limit.unwrap_or(version_tree::PAGE);
+    let sudo = sudo_cmd();
+    let view =
+        rocket::tokio::task::spawn_blocking(move || version_tree::load(&dir_str, limit, &sudo))
+            .await;
+    match view {
+        Ok(v) => RawJson(
+            serde_json::to_string(&v)
+                .unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() }).to_string()),
+        ),
+        Err(e) => RawJson(serde_json::json!({ "error": e.to_string() }).to_string()),
+    }
 }
 
 /// Enabled/disabled services from `settings.toml` at a revision.

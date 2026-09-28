@@ -17,8 +17,8 @@ pub use command::{
 pub use generation::{
     activation_commit_message, current_generation_number, list_system_generations,
     list_system_generations_with_sudo, parse_generation_from_message, record_generation_in_commit,
-    running_generation_number, switch_system_generation, GenerationMode, GenerationTimeline,
-    GenerationsList, SystemGeneration,
+    running_generation_number, switch_system_generation, system_profile_available, GenerationMode,
+    GenerationTimeline, GenerationsList, SystemGeneration,
 };
 pub use ops::{operations_dir, resolve_suffix, OperationKind, OperationLog, OPERATIONS_DIR};
 pub use profile::{

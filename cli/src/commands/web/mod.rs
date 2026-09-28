@@ -27,6 +27,7 @@ mod trigger;
 mod types;
 mod units;
 mod util;
+mod version_tree;
 mod zfs;
 
 use action_bar::start_action_bar_watcher;

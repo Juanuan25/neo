@@ -1,0 +1,68 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const VT = require('./version_tree.js');
+
+test('metrics shrink lanes to fit and vanish without lanes', () => {
+  assert.deepEqual(VT.metrics(0), { pad: 0, lw: 0, width: 0 });
+  const one = VT.metrics(1);
+  assert.equal(one.lw, 15);
+  assert.equal(one.width, 37);
+  const many = VT.metrics(20);
+  assert.equal(many.lw, 7); // floor
+  const compact = VT.metrics(3, true);
+  assert.ok(compact.width <= 64 + 1);
+});
+
+test('laneX mirrors for the system gutter', () => {
+  const m = VT.metrics(2);
+  assert.equal(VT.laneX(m, 0), m.pad + m.lw / 2);
+  assert.equal(VT.laneX(m, 0, true), m.width - (m.pad + m.lw / 2));
+  assert.ok(VT.laneX(m, 1, true) < VT.laneX(m, 0, true));
+});
+
+test('straight edge is a single line', () => {
+  assert.equal(VT.edgePath(10, 20, 10, 10, 100, 18), 'M10,20 L10,100');
+});
+
+test('fork bends just above the parent', () => {
+  const d = VT.edgePath(25, 20, 25, 10, 100, 18);
+  assert.equal(d, 'M25,20 L25,82 C25,91 10,91 10,100');
+});
+
+test('merge edge bends right below the child', () => {
+  const d = VT.edgePath(10, 20, 25, 25, 100, 18);
+  assert.equal(d, 'M10,20 C10,29 25,29 25,38 L25,100');
+});
+
+test('double bend on a short span splits the height', () => {
+  const d = VT.edgePath(10, 0, 20, 30, 20, 18);
+  assert.equal(d, 'M10,0 C10,5 20,5 20,10 C20,15 30,15 30,20');
+});
+
+test('withDays inserts one separator per day and skips pending', () => {
+  const t = new Date(2026, 8, 28, 12, 0, 0).getTime() / 1000;
+  const rows = [
+    { key: 'WORKTREE', pending: true, time: 9e15 },
+    { key: 'a', time: t },
+    { key: 'b', time: t - 3600 },
+    { key: 'c', time: t - 86400 },
+  ];
+  const items = VT.withDays(rows);
+  assert.deepEqual(
+    items.map((i) => i.type + ':' + (i.row ? i.row.key : '')),
+    ['row:WORKTREE', 'day:', 'row:a', 'row:b', 'day:', 'row:c'],
+  );
+  assert.equal(items[2].index, 1);
+  assert.equal(new Set(items.map((i) => i.key)).size, items.length);
+});
+
+test('changeText summarises settings changes', () => {
+  assert.equal(VT.changeText(null), '');
+  assert.equal(VT.changeText({ initial: true, enabled: 1 }), 'First version · 1 service');
+  assert.equal(VT.changeText({ unchanged: true }), 'No settings changes');
+  assert.equal(
+    VT.changeText({ added: ['a', 'b', 'c'], removed: ['d'], changed: ['e'], sections: ['core'] }),
+    'Enabled a, b +1 · Disabled d · Changed e, core',
+  );
+});

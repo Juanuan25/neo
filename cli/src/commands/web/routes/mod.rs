@@ -46,6 +46,7 @@ pub fn routes() -> Vec<rocket::Route> {
         branches::branches,
         branches::git_switch,
         branches::versioning_graph,
+        branches::versioning_tree,
         branches::versioning_services,
         branches::versioning_diff,
         branches::versioning_generations,

@@ -1,0 +1,109 @@
+// version_tree.js — pure helpers for the Versioning timeline (versioning.js):
+// lane geometry, SVG edge paths, day grouping and change summaries. The lane
+// assignment itself happens server-side (cli/src/commands/web/version_tree).
+// Tested by version_tree.test.js (`just test-widgets`).
+(function (root) {
+  'use strict';
+
+  /** Gutter geometry for a graph with `lanes` lanes. */
+  function metrics(lanes, compact) {
+    if (!lanes) return { pad: 0, lw: 0, width: 0 };
+    var pad = compact ? 7 : 11;
+    var maxW = compact ? 64 : 104;
+    var lw = Math.max(7, Math.min(compact ? 11 : 15, (maxW - 2 * pad) / lanes));
+    return { pad: pad, lw: lw, width: Math.round(2 * pad + lanes * lw) };
+  }
+
+  /** Lane centre. `mirror`: lane 0 hugs the right edge (system gutter). */
+  function laneX(m, lane, mirror) {
+    var x = m.pad + lane * m.lw + m.lw / 2;
+    return mirror ? m.width - x : x;
+  }
+
+  function r1(n) {
+    return Math.round(n * 10) / 10;
+  }
+
+  /**
+   * SVG path for an edge from (x1, y1) down to (x2, y2) travelling in column
+   * xl: bend from x1 into xl right below the child, straight down, bend into
+   * x2 right above the parent. Bends are S-curves at most `bend` px tall.
+   */
+  function edgePath(x1, y1, xl, x2, y2, bend) {
+    var span = Math.max(0, y2 - y1);
+    var needStart = x1 !== xl;
+    var needEnd = x2 !== xl;
+    var b = Math.min(bend || 18, needStart && needEnd ? span / 2 : span);
+    var d = 'M' + r1(x1) + ',' + r1(y1);
+    var y = y1;
+    if (needStart) {
+      var ys = y1 + b;
+      d += ' C' + r1(x1) + ',' + r1(y1 + b / 2) + ' ' + r1(xl) + ',' + r1(y1 + b / 2) + ' ' + r1(xl) + ',' + r1(ys);
+      y = ys;
+    }
+    if (needEnd) {
+      var ye = y2 - b;
+      if (ye > y) d += ' L' + r1(xl) + ',' + r1(ye);
+      d += ' C' + r1(xl) + ',' + r1(ye + b / 2) + ' ' + r1(x2) + ',' + r1(ye + b / 2) + ' ' + r1(x2) + ',' + r1(y2);
+    } else if (y2 > y) {
+      d += ' L' + r1(xl) + ',' + r1(y2);
+    }
+    return d;
+  }
+
+  function dayKey(ts) {
+    var d = new Date(ts * 1000);
+    return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+  }
+
+  /**
+   * Interleave day separators with rows (newest first). Returns
+   * `{ type: 'day', key, ts }` and `{ type: 'row', key, index, row }`.
+   * Pending (unapplied) rows never start a day.
+   */
+  function withDays(rows) {
+    var out = [];
+    var last = null;
+    (rows || []).forEach(function (row, index) {
+      if (!row.pending) {
+        var k = dayKey(row.time);
+        if (k !== last) {
+          out.push({ type: 'day', key: 'day-' + k, ts: row.time });
+          last = k;
+        }
+      }
+      out.push({ type: 'row', key: 'row-' + (row.key || index), index: index, row: row });
+    });
+    return out;
+  }
+
+  function listText(names, max) {
+    max = max || 2;
+    if (names.length <= max) return names.join(', ');
+    return names.slice(0, max).join(', ') + ' +' + (names.length - max);
+  }
+
+  /** One-line summary of a commit's settings change, or '' when unknown. */
+  function changeText(ch) {
+    if (!ch) return '';
+    if (ch.initial) return 'First version · ' + ch.enabled + (ch.enabled === 1 ? ' service' : ' services');
+    if (ch.unchanged) return 'No settings changes';
+    var parts = [];
+    if (ch.added && ch.added.length) parts.push('Enabled ' + listText(ch.added));
+    if (ch.removed && ch.removed.length) parts.push('Disabled ' + listText(ch.removed));
+    var changed = (ch.changed || []).concat(ch.sections || []);
+    if (changed.length) parts.push('Changed ' + listText(changed));
+    return parts.join(' · ');
+  }
+
+  var api = {
+    metrics: metrics,
+    laneX: laneX,
+    edgePath: edgePath,
+    dayKey: dayKey,
+    withDays: withDays,
+    changeText: changeText,
+  };
+  root.NeoVersionTree = api;
+  if (typeof module === 'object' && module.exports) module.exports = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);

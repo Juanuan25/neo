@@ -1,10 +1,19 @@
 // versioning.js — Alpine component for the Versioning tab (branches.html.hbs).
-// History (activation commits grouped by day), system generations, and the
-// server-rendered ZFS data-snapshots card. Diffs and job output open in the
-// shared #changes-modal.
+//
+// One timeline, two linked graphs: the configuration history (git commits of
+// your settings; left gutter, circles) and the system lineage (NixOS
+// generations; right gutter, squares). A commit and the generation it built
+// share a row, joined by a "built" connector. Rows, lanes and links come from
+// GET /versioning/tree (server-side lane assignment); this file measures the
+// rendered rows and draws both gutters as inline SVG (helpers in
+// version_tree.js). Diffs and job output open in the shared #changes-modal;
+// the Data snapshots tab is the server-rendered ZFS card (/versioning/zfs).
 
 window.versioningPage = function versioningPage() {
   var TAB_KEY = 'neo.versioningTab';
+  var LEGEND_KEY = 'neo.versioningLegend';
+  var PAGE = 40;
+  var VT = window.NeoVersionTree;
 
   function pad2(n) {
     return n < 10 ? '0' + n : String(n);
@@ -22,31 +31,12 @@ window.versioningPage = function versioningPage() {
     if (typeof window.neoToast === 'function') window.neoToast(msg, type || 'info');
   }
 
-  /** `activation_20260721-123033` → epoch seconds (local time), else null. */
-  function activationNameTime(name) {
-    var m = /activation_(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(name || '');
-    if (!m) return null;
-    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() / 1000;
-  }
-
-  /** `2026-09-28 20:37:02` (server local) → epoch seconds, else null. */
-  function genDateTime(s) {
-    var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(s || '');
-    if (!m) return null;
-    return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime() / 1000;
-  }
-
-  function kindOf(subject) {
-    if (/^Activation:/i.test(subject)) return 'activation';
-    if (/^Build:/i.test(subject)) return 'build';
-    return 'other';
-  }
-
-  function titleOf(c, kind) {
-    if (kind === 'activation') return 'Activation';
-    if (kind === 'build') return 'Build';
-    var s = (c.subject || '').replace(/activation_\d{8}-\d{6}/gi, '').replace(/\s+/g, ' ').trim();
-    return s || 'Commit';
+  function store(key, val) {
+    try {
+      if (val === undefined) return localStorage.getItem(key);
+      localStorage.setItem(key, val);
+    } catch (e) {}
+    return null;
   }
 
   /** Output of a POST (activation monitor, alerts) in the shared dialog. */
@@ -61,43 +51,58 @@ window.versioningPage = function versioningPage() {
     if (!m.open) m.showModal();
   }
 
+  var SPINNER = '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-sm opacity-50"></span></div>';
+
   return {
-    tab: 'history',
+    tab: 'timeline',
     loading: true,
+    loadingMore: false,
     error: '',
-    all: [], // display entries, newest first (see buildEntries)
-    head: '',
-    dirty: false,
-    showAll: false,
-    expanded: null,
+    tree: null,
+    limit: PAGE,
+    expanded: null, // row key
     compare: false,
-    picks: [],
-    services: {}, // commit id → { enabled: [] } | { error }
-    gens: [],
-    gensLoading: true,
-    gensMessage: '',
-    gensLimit: 20,
+    picks: [], // commit ids (A, B)
+    services: {}, // commit id → { enabled: [] } | { error } | null (loading)
+    hl: null, // { commit, gen } linked to the hovered row
+    legendOpen: true,
     zfsAvailable: false,
-    // Re-render relative times once a minute.
+    cfgW: 0,
+    sysW: 0,
     now: Date.now() / 1000,
 
     init() {
+      var self = this;
       try {
         var t = sessionStorage.getItem(TAB_KEY);
-        if (t === 'history' || t === 'system' || t === 'data') this.tab = t;
+        if (t === 'timeline' || t === 'data') this.tab = t;
       } catch (e) {}
-      var self = this;
-      this.loadGraph();
-      this.loadGenerations();
+      this.legendOpen = store(LEGEND_KEY) !== 'closed';
+      this.loadTree();
       this.loadZfs();
       this._tick = setInterval(function () {
         if (!self.$root.isConnected) return clearInterval(self._tick);
         self.now = Date.now() / 1000;
       }, 60000);
+      if (typeof ResizeObserver !== 'undefined') {
+        this._ro = new ResizeObserver(function () {
+          self.scheduleDraw();
+        });
+        this.$nextTick(function () {
+          if (self.$refs.list) self._ro.observe(self.$refs.list);
+        });
+      }
+      this._onResize = function () {
+        self.scheduleDraw();
+      };
+      window.addEventListener('resize', this._onResize);
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(this._onResize);
     },
 
     destroy() {
       clearInterval(this._tick);
+      if (this._ro) this._ro.disconnect();
+      window.removeEventListener('resize', this._onResize);
     },
 
     setTab(t) {
@@ -105,6 +110,12 @@ window.versioningPage = function versioningPage() {
       try {
         sessionStorage.setItem(TAB_KEY, t);
       } catch (e) {}
+      if (t === 'timeline') this.scheduleDraw();
+    },
+
+    toggleLegend() {
+      this.legendOpen = !this.legendOpen;
+      store(LEGEND_KEY, this.legendOpen ? 'open' : 'closed');
     },
 
     onEscape() {
@@ -115,48 +126,38 @@ window.versioningPage = function versioningPage() {
 
     // ─── Data ──────────────────────────────────────────────────────────────
 
-    loadGraph() {
+    loadTree() {
       var self = this;
-      return fetch('/versioning/graph')
+      return fetch('/versioning/tree?limit=' + this.limit)
         .then(function (r) {
           return r.json();
         })
         .then(function (data) {
-          self.head = data.head || '';
-          self.all = self.buildEntries(data.commits || []);
-          self.dirty = !!data.dirty;
+          if (data.error) throw new Error(data.error);
+          self.tree = data;
           self.error = '';
+          if (self.expanded && !self.rowByKey(self.expanded)) self.expanded = null;
         })
         .catch(function (e) {
-          self.error = 'Failed to load history: ' + e;
+          self.error = 'Failed to load history: ' + (e && e.message ? e.message : e);
         })
         .finally(function () {
           self.loading = false;
+          self.loadingMore = false;
+          self.scheduleDraw();
         });
     },
 
-    loadGenerations() {
-      var self = this;
-      this.gensLoading = true;
-      return fetch('/versioning/generations')
-        .then(function (r) {
-          return r.json();
-        })
-        .then(function (data) {
-          if (data.unavailable) {
-            self.gens = [];
-            self.gensMessage = data.message || 'This machine has no NixOS system profile.';
-            return;
-          }
-          self.gensMessage = '';
-          self.gens = data.generations || [];
-        })
-        .catch(function (e) {
-          self.gensMessage = String(e);
-        })
-        .finally(function () {
-          self.gensLoading = false;
-        });
+    refresh() {
+      this.loading = !this.tree;
+      this.loadTree();
+      this.loadZfs();
+    },
+
+    showOlder() {
+      this.limit += PAGE;
+      this.loadingMore = true;
+      return this.loadTree();
     },
 
     /** The ZFS card renders `class="hidden"` when the machine has no restore hook. */
@@ -172,7 +173,7 @@ window.versioningPage = function versioningPage() {
           host.innerHTML = html;
           var card = host.firstElementChild;
           self.zfsAvailable = !!card && !card.classList.contains('hidden');
-          if (!self.zfsAvailable && self.tab === 'data') self.tab = 'history';
+          if (!self.zfsAvailable && self.tab === 'data') self.tab = 'timeline';
           if (typeof htmx !== 'undefined' && htmx.process) htmx.process(host);
         })
         .catch(function () {
@@ -193,6 +194,9 @@ window.versioningPage = function versioningPage() {
         })
         .catch(function (e) {
           self.services[id] = { error: String(e) };
+        })
+        .finally(function () {
+          self.scheduleDraw(); // the services line changes the row height
         });
     },
 
@@ -202,142 +206,289 @@ window.versioningPage = function versioningPage() {
 
     // ─── Derived ───────────────────────────────────────────────────────────
 
-    allEntries() {
-      return this.all;
+    rows() {
+      return (this.tree && this.tree.rows) || [];
     },
 
-    /** Commits as display entries, newest first; `prevId` = previous activation. */
-    buildEntries(commits) {
-      var head = this.head;
-      var list = commits.map(function (c) {
-        var kind = kindOf(c.subject || '');
-        var branchTime = null;
-        (c.branches || []).forEach(function (b) {
-          var t = activationNameTime(b);
-          if (t && (!branchTime || t > branchTime)) branchTime = t;
+    items() {
+      return VT.withDays(this.rows());
+    },
+
+    status() {
+      return (this.tree && this.tree.status) || { kind: 'unknown' };
+    },
+
+    systemAvailable() {
+      return !!(this.tree && this.tree.system && this.tree.system.available);
+    },
+
+    rowByKey(key) {
+      return this.rows().find(function (r) {
+        return r.key === key;
+      }) || null;
+    },
+
+    commitRow(id) {
+      return this.rows().find(function (r) {
+        return r.commit && r.commit.id === id;
+      }) || null;
+    },
+
+    commitById(id) {
+      var r = this.commitRow(id);
+      return r ? r.commit : null;
+    },
+
+    genRow(n) {
+      return this.rows().find(function (r) {
+        return r.system && r.system.type === 'generation' && r.system.number === n;
+      }) || null;
+    },
+
+    headCommit() {
+      return this.tree ? this.commitById(this.tree.head) : null;
+    },
+
+    /** Nearest first-parent ancestor that is an activation (loaded), else the parent. */
+    prevFor(c) {
+      var parent = (c.parents || [])[0];
+      var cur = parent;
+      var guard = 0;
+      while (cur && guard++ < 500) {
+        var p = this.commitById(cur);
+        if (!p) break;
+        if (p.kind === 'activation') return p.id;
+        cur = (p.parents || [])[0];
+      }
+      return parent || null;
+    },
+
+    /** Row title: what changed in this version, else its kind. */
+    commitTitle(c) {
+      var ch = c.changes;
+      if (ch && ch.unchanged) {
+        if (c.kind === 'activation') return 'Activated again · no settings changes';
+      } else if (ch) {
+        var t = VT.changeText(ch);
+        if (t) return t;
+      }
+      if (c.kind === 'activation') return 'Activation';
+      if (c.kind === 'build') return 'Build';
+      return (c.subject || '').replace(/activation_\d{8}-\d{6}/gi, '').trim() || 'Commit';
+    },
+
+    commitKindLabel(c) {
+      if (c.kind === 'activation') return 'Activation';
+      if (c.kind === 'build') return 'Build';
+      return 'Commit';
+    },
+
+    /** Whether the row joins a commit and the generation it built. */
+    linked(row) {
+      return !!(row.commit && row.system && row.system.type === 'generation');
+    },
+
+    sysTitle(s) {
+      if (s.type === 'switch') {
+        return (s.rollback ? 'Rolled back to generation ' : 'Switched to generation ') + s.to;
+      }
+      return 'Generation ' + s.number;
+    },
+
+    sysSubtitle(row) {
+      var s = row.system;
+      if (s.type === 'switch') {
+        return s.from ? 'from generation ' + s.from + ' · builds continue from here' : 'builds continue from here';
+      }
+      var parts = [];
+      if (s.identicalTo) parts.push('Identical to generation ' + s.identicalTo);
+      else if (s.branched && s.parentGen) parts.push('Built on generation ' + s.parentGen + ' after a rollback');
+      else if (row.commit) parts.push('New system');
+      if (!row.commit && s.builtFrom) {
+        parts.push('from version ' + s.builtFrom.short + (s.builtFrom.how === 'inferred' ? ' (likely)' : ''));
+      } else if (!row.commit && !s.builtFrom) {
+        parts.push('not linked to a saved version');
+      }
+      return parts.join(' · ');
+    },
+
+    /** Text for the system side of a commit row without its own generation. */
+    genNote(c) {
+      if (!c.generation) {
+        return c.kind === 'activation' && this.systemAvailable() ? 'No system recorded' : '';
+      }
+      if (c.genState === 'same') return 'Same system as generation ' + c.generation;
+      if (c.genState === 'missing') return 'Generation ' + c.generation + ' · deleted';
+      if (c.genState === 'created') return 'Built generation ' + c.generation;
+      return 'Generation ' + c.generation;
+    },
+
+    rowClass(row) {
+      var cls = [];
+      if (this.expanded === row.key && !this.compare) cls.push('vt-open');
+      if (this.hl && ((this.hl.commit && row.commit && row.commit.id === this.hl.commit) ||
+          (this.hl.gen && row.system && row.system.type === 'generation' && row.system.number === this.hl.gen))) {
+        cls.push('vt-hl');
+      }
+      if (this.compare && !row.commit) cls.push('opacity-40');
+      if (this.compare && row.commit && this.pickIndex(row.commit.id) >= 0) cls.push('vt-picked');
+      return cls.join(' ');
+    },
+
+    rowPad() {
+      return 'padding-left:' + this.cfgW + 'px;padding-right:' + this.sysW + 'px';
+    },
+
+    /** Hovering a row highlights what it is linked to in the other graph. */
+    hover(row) {
+      var hl = { commit: null, gen: null };
+      var s = row.system;
+      if (s && s.type === 'generation' && s.builtFrom) hl.commit = s.builtFrom.id;
+      if (s && s.type === 'switch') hl.gen = s.to;
+      if (row.commit && row.commit.generation && row.commit.genState === 'same') hl.gen = row.commit.generation;
+      if (row.commit && row.commit.isRunningConfig && !s) {
+        var st = this.status();
+        if (st.running) hl.gen = st.running;
+      }
+      this.hl = hl.commit || hl.gen ? hl : null;
+    },
+
+    // ─── Graph drawing ─────────────────────────────────────────────────────
+
+    scheduleDraw() {
+      // rAF batches redraws; the timer covers hidden tabs where rAF pauses.
+      var self = this;
+      if (this._drawPending) return;
+      this._drawPending = true;
+      var run = function () {
+        if (!self._drawPending) return;
+        self._drawPending = false;
+        self.$nextTick(function () {
+          self.drawGraphs();
         });
-        return {
-          id: c.id,
-          short: c.shortId || (c.id || '').slice(0, 7),
-          kind: kind,
-          title: titleOf(c, kind),
-          time: branchTime || c.timestamp || 0,
-          gen: c.generation || null,
-          isHead: c.id === head,
-          isTip: !!(c.branches && c.branches.length),
-          parent: (c.parents || [])[0] || null,
-        };
+      };
+      requestAnimationFrame(run);
+      setTimeout(run, 80);
+    },
+
+    drawGraphs() {
+      var list = this.$refs.list;
+      var cfgSvg = this.$refs.cfgSvg;
+      var sysSvg = this.$refs.sysSvg;
+      if (!list || !cfgSvg || !sysSvg || !this.tree || !list.offsetParent) return;
+      var tree = this.tree;
+      var box = list.getBoundingClientRect();
+      var compact = box.width < 560;
+      var cm = VT.metrics(tree.configGraph.lanes, compact);
+      var sm = VT.metrics(this.systemAvailable() ? tree.systemGraph.lanes : 0, compact);
+      if (cm.width !== this.cfgW || sm.width !== this.sysW) {
+        // Row padding changes → rows reflow → the ResizeObserver redraws.
+        this.cfgW = cm.width;
+        this.sysW = sm.width;
+        this.scheduleDraw();
+        return;
+      }
+      var H = list.offsetHeight;
+      var cfgY = {};
+      var sysY = {};
+      list.querySelectorAll('[data-row]').forEach(function (li) {
+        var i = +li.getAttribute('data-row');
+        var a = li.querySelector('[data-cfg-anchor]');
+        var b = li.querySelector('[data-sys-anchor]');
+        if (a) {
+          var ra = a.getBoundingClientRect();
+          cfgY[i] = ra.top - box.top + ra.height / 2;
+        }
+        if (b) {
+          var rb = b.getBoundingClientRect();
+          sysY[i] = rb.top - box.top + rb.height / 2;
+        }
       });
-      list.sort(function (a, b) {
-        return b.time - a.time;
-      });
-      // Changes are measured against the next older activation (or git parent).
-      for (var i = 0; i < list.length; i++) {
-        var prev = null;
-        for (var j = i + 1; j < list.length; j++) {
-          if (list[j].kind === 'activation') {
-            prev = list[j].id;
-            break;
+      var rows = this.rows();
+      var self = this;
+
+      function edges(graph, ys, m, mirror, pendingRow) {
+        var out = '';
+        (graph.edges || []).forEach(function (e) {
+          var y1 = ys[e.fromRow];
+          if (y1 == null) return;
+          var open = e.toRow == null;
+          var y2 = open ? H - 2 : ys[e.toRow];
+          if (y2 == null) return;
+          var x1 = VT.laneX(m, e.fromLane, mirror);
+          var xl = VT.laneX(m, e.lane, mirror);
+          var x2 = VT.laneX(m, e.toLane, mirror);
+          var cls = 'vt-edge' + (e.lane > 0 ? ' vt-edge-side' : '');
+          if (pendingRow != null && e.fromRow === pendingRow) cls += ' vt-edge-pending';
+          if (open) {
+            var cut = Math.max(y1, y2 - 22);
+            out += '<path class="' + cls + '" d="' + VT.edgePath(x1, y1, xl, xl, cut, 18) + '"/>';
+            out += '<path class="' + cls + ' vt-edge-open" d="M' + xl + ',' + cut + ' L' + xl + ',' + y2 + '"/>';
+          } else {
+            out += '<path class="' + cls + '" d="' + VT.edgePath(x1, y1, xl, x2, y2, 18) + '"/>';
+          }
+        });
+        return out;
+      }
+
+      var pendingRow = rows.length && rows[0].pending ? 0 : null;
+      var cfgEdges = edges(tree.configGraph, cfgY, cm, false, pendingRow);
+      var sysEdges = edges(tree.systemGraph, sysY, sm, true, null);
+      var cfgNodes = '';
+      var sysNodes = '';
+
+      rows.forEach(function (row, i) {
+        var open = self.expanded === row.key && !self.compare;
+        if (row.pending && cfgY[i] != null) {
+          var px = VT.laneX(cm, row.pendingLane || 0, false);
+          cfgNodes += '<circle class="vt-dot-pending" cx="' + px + '" cy="' + cfgY[i] + '" r="5.5"/>';
+        }
+        var c = row.commit;
+        if (c && cfgY[i] != null) {
+          var x = VT.laneX(cm, c.lane, false);
+          var y = cfgY[i];
+          if (open) cfgNodes += '<circle class="vt-sel" cx="' + x + '" cy="' + y + '" r="12"/>';
+          if (c.isRunningConfig) cfgNodes += '<circle class="vt-ring-run" cx="' + x + '" cy="' + y + '" r="9"/>';
+          else if (c.isHead) cfgNodes += '<circle class="vt-ring-head" cx="' + x + '" cy="' + y + '" r="9"/>';
+          if (c.kind === 'activation') {
+            cfgNodes += '<circle class="vt-dot" cx="' + x + '" cy="' + y + '" r="' + (c.isHead ? 6 : 5) + '"/>';
+          } else {
+            cfgNodes += '<circle class="vt-dot-hollow" cx="' + x + '" cy="' + y + '" r="3.5"/>';
           }
         }
-        list[i].prevId = prev || list[i].parent;
-      }
-      return list;
-    },
-
-    entries() {
-      var all = this.allEntries();
-      if (this.showAll) return all;
-      return all.filter(function (e) {
-        return e.kind === 'activation' || e.isHead || e.isTip;
-      });
-    },
-
-    activationCount() {
-      return this.allEntries().filter(function (e) {
-        return e.kind === 'activation';
-      }).length || '';
-    },
-
-    groups() {
-      var out = [];
-      var byKey = {};
-      var self = this;
-      this.entries().forEach(function (e) {
-        var d = new Date(e.time * 1000);
-        var key = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
-        if (!byKey[key]) {
-          byKey[key] = { key: key, label: self.dayLabel(d), items: [] };
-          out.push(byKey[key]);
+        var s = row.system;
+        if (s && sysY[i] != null) {
+          var sx = VT.laneX(sm, s.lane, true);
+          var sy = sysY[i];
+          if (open) sysNodes += '<circle class="vt-sel" cx="' + sx + '" cy="' + sy + '" r="12"/>';
+          if (s.type === 'generation') {
+            if (s.isRunning) {
+              sysNodes += '<rect class="vt-halo" x="' + (sx - 6) + '" y="' + (sy - 6) + '" width="12" height="12" rx="3"/>';
+            } else if (s.isBoot) {
+              sysNodes += '<rect class="vt-ring-boot" x="' + (sx - 9) + '" y="' + (sy - 9) + '" width="18" height="18" rx="4.5"/>';
+            }
+            sysNodes += '<rect class="vt-sq' + (s.isRunning ? ' vt-sq-run' : '') + '" x="' + (sx - 5.5) + '" y="' + (sy - 5.5) +
+              '" width="11" height="11" rx="2.5"/>';
+          } else {
+            var r = 5.5;
+            sysNodes += '<path class="vt-diamond' + (s.isLatest ? ' vt-diamond-now' : '') + '" d="M' + sx + ',' + (sy - r) +
+              ' L' + (sx + r) + ',' + sy + ' L' + sx + ',' + (sy + r) + ' L' + (sx - r) + ',' + sy + ' Z"/>';
+          }
         }
-        byKey[key].items.push(e);
       });
-      return out;
-    },
 
-    headEntry() {
-      var head = this.head;
-      return (
-        this.allEntries().find(function (e) {
-          return e.id === head;
-        }) || null
-      );
-    },
-
-    runningGen() {
-      return (
-        this.gens.find(function (g) {
-          return g.isRunning;
-        }) || null
-      );
-    },
-
-    bootGen() {
-      return (
-        this.gens.find(function (g) {
-          return g.isCurrent;
-        }) || null
-      );
-    },
-
-    commitForGen(n) {
-      return (
-        this.allEntries().find(function (e) {
-          return e.gen === n && e.kind === 'activation';
-        }) || null
-      );
-    },
-
-    canSwitchGen(e) {
-      if (!e.gen) return false;
-      var run = this.runningGen();
-      if (run && run.number === e.gen) return false;
-      return this.gens.some(function (g) {
-        return g.number === e.gen;
-      });
-    },
-
-    added(e) {
-      var cur = this.svc(e.id);
-      var prev = this.svc(e.prevId);
-      if (!cur || !prev || cur.error || prev.error) return [];
-      return cur.enabled.filter(function (s) {
-        return prev.enabled.indexOf(s) === -1;
-      });
-    },
-
-    removed(e) {
-      var cur = this.svc(e.id);
-      var prev = this.svc(e.prevId);
-      if (!cur || !prev || cur.error || prev.error) return [];
-      return prev.enabled.filter(function (s) {
-        return cur.enabled.indexOf(s) === -1;
-      });
+      cfgSvg.setAttribute('width', cm.width);
+      cfgSvg.setAttribute('height', H);
+      cfgSvg.innerHTML = cfgEdges + cfgNodes;
+      sysSvg.setAttribute('width', sm.width);
+      sysSvg.setAttribute('height', H);
+      sysSvg.innerHTML = sysEdges + sysNodes;
     },
 
     // ─── Formatting ────────────────────────────────────────────────────────
 
-    dayLabel(d) {
+    dayLabel(ts) {
+      var d = new Date(ts * 1000);
       var today = new Date();
       today.setHours(0, 0, 0, 0);
       var day = new Date(d.getTime());
@@ -381,46 +532,70 @@ window.versioningPage = function versioningPage() {
       return y + (y === 1 ? ' year ago' : ' years ago');
     },
 
-    genRel(g) {
-      var t = genDateTime(g && g.date);
-      return t ? this.relTime(t) : (g && g.date) || '';
+    rowTime(row) {
+      if (row.commit) return row.commit.timestamp;
+      if (row.system) return row.system.type === 'switch' ? row.system.time : row.system.created;
+      return 0;
     },
 
     // ─── Interaction ───────────────────────────────────────────────────────
 
-    onRow(e) {
+    onRow(row) {
       if (this.compare) {
-        this.togglePick(e.id);
+        if (row.commit) this.togglePick(row.commit.id);
         return;
       }
-      this.expanded = this.expanded === e.id ? null : e.id;
-      if (this.expanded) {
-        this.loadServices(e.id);
-        if (e.prevId) this.loadServices(e.prevId);
+      if (row.pending) {
+        this.reviewPending();
+        return;
       }
+      this.expanded = this.expanded === row.key ? null : row.key;
+      if (this.expanded && row.commit) {
+        this.loadServices(row.commit.id);
+      }
+      this.scheduleDraw();
     },
 
-    /** From a generation row: jump to its version in History. */
-    openCommit(id) {
-      this.setTab('history');
-      this.compare = false;
-      var e = this.allEntries().find(function (x) {
-        return x.id === id;
-      });
-      if (!e) return;
-      if (e.kind !== 'activation' && !e.isTip && !e.isHead) this.showAll = true;
-      this.expanded = null;
-      this.onRow(e);
+    /** Expand a row by key and scroll to it; loads older pages when needed. */
+    jumpTo(key, tries) {
       var self = this;
+      var row = this.rowByKey(key);
+      if (!row) {
+        tries = tries || 0;
+        if (this.tree && this.tree.hasMore && tries < 5) {
+          this.showOlder().then(function () {
+            self.jumpTo(key, tries + 1);
+          });
+        } else {
+          toast('That entry is older than the loaded history.', 'info');
+        }
+        return;
+      }
+      this.compare = false;
+      this.expanded = key;
+      if (row.commit) this.loadServices(row.commit.id);
+      this.scheduleDraw();
       this.$nextTick(function () {
-        var btn = self.$root.querySelector('[aria-expanded="true"]');
-        if (btn) btn.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        var el = self.$root.querySelector('[data-key="' + CSS.escape(key) + '"]');
+        if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
       });
+    },
+
+    jumpToCommit(id) {
+      var row = this.commitRow(id);
+      this.jumpTo(row ? row.key : id);
+    },
+
+    jumpToGen(n) {
+      var row = this.genRow(n);
+      if (row) this.jumpTo(row.key);
+      else this.jumpTo('g' + n);
     },
 
     toggleCompare() {
       this.compare = !this.compare;
       this.picks = [];
+      this.scheduleDraw();
     },
 
     togglePick(id) {
@@ -435,28 +610,23 @@ window.versioningPage = function versioningPage() {
     },
 
     pickLabel(i) {
-      var id = this.picks[i];
-      var e = this.allEntries().find(function (x) {
-        return x.id === id;
-      });
-      if (!e) return '';
-      var d = new Date(e.time * 1000);
-      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + this.clock(e.time);
+      var c = this.commitById(this.picks[i]);
+      if (!c) return '';
+      var d = new Date(c.timestamp * 1000);
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + this.clock(c.timestamp) + ' · ' + c.short;
     },
 
     entryHeading(id, letter) {
-      var e = this.allEntries().find(function (x) {
-        return x.id === id;
-      });
-      if (!e) return '<span class="font-mono">' + escapeHtml(id.slice(0, 7)) + '</span>';
+      var c = this.commitById(id);
+      if (!c) return '<span class="font-mono">' + escapeHtml(String(id).slice(0, 7)) + '</span>';
       return (
         '<div class="rounded-field border border-base-300 bg-base-200/50 px-3 py-2 min-w-0 flex-1">' +
         '<div class="text-[11px] font-semibold uppercase tracking-wider text-base-content/50">' + letter + '</div>' +
-        '<div class="text-sm font-semibold truncate">' + escapeHtml(e.title) +
-        (e.gen ? ' <span class="font-normal text-base-content/60">· Generation ' + e.gen + '</span>' : '') +
+        '<div class="text-sm font-semibold truncate">' + escapeHtml(this.commitTitle(c)) +
+        (c.generation ? ' <span class="font-normal text-base-content/60">· Generation ' + c.generation + '</span>' : '') +
         '</div>' +
-        '<div class="text-xs text-base-content/60"><span>' + escapeHtml(this.fullTime(e.time)) + '</span> · ' +
-        '<span class="font-mono">' + escapeHtml(e.short) + '</span></div></div>'
+        '<div class="text-xs text-base-content/60"><span>' + escapeHtml(this.fullTime(c.timestamp)) + '</span> · ' +
+        '<span class="font-mono">' + escapeHtml(c.short) + '</span></div></div>'
       );
     },
 
@@ -468,10 +638,7 @@ window.versioningPage = function versioningPage() {
         '<span class="text-base-content/40 self-center rotate-90 sm:rotate-0" aria-hidden="true">→</span>' +
         this.entryHeading(b, 'To') +
         '</div>';
-      openModal(
-        title,
-        head + '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-sm opacity-50"></span></div>'
-      );
+      openModal(title, head + SPINNER);
       fetch('/versioning/diff?a=' + encodeURIComponent(a) + '&b=' + encodeURIComponent(b))
         .then(function (r) {
           return r.text();
@@ -490,7 +657,7 @@ window.versioningPage = function versioningPage() {
     },
 
     reviewPending() {
-      openModal('Pending changes', '<div class="flex justify-center py-8"><span class="loading loading-spinner loading-sm opacity-50"></span></div>');
+      openModal('Pending changes', SPINNER);
       fetch('/changes/summary')
         .then(function (r) {
           return r.text();
@@ -511,25 +678,36 @@ window.versioningPage = function versioningPage() {
         })
         .then(function (html) {
           openModal(title, html);
-          self.loadGraph();
+          self.loadTree();
         })
         .catch(function (e) {
           toast(String(e), 'error');
         });
     },
 
-    restore(e) {
-      var when = this.fullTime(e.time);
-      if (this.dirty) {
+    restore(c) {
+      if (this.tree && this.tree.dirty) {
         window.alert('You have unapplied changes. Activate or discard them before restoring an earlier version.');
         return;
       }
       var msg =
-        'Restore the version from ' + when + '?\n\n' +
+        'Restore the settings from ' + this.fullTime(c.timestamp) + ' (version ' + c.short + ')?\n\n' +
         'Your settings are switched back to this version and the server is rebuilt and activated. ' +
-        'This takes a few minutes and saves a new version; nothing is deleted.';
+        'This takes a few minutes and saves a new version on a new branch; nothing is deleted.';
       if (!window.confirm(msg)) return;
-      this.post('/versioning/activate/' + encodeURIComponent(e.id), 'Restoring version');
+      this.post('/versioning/activate/' + encodeURIComponent(c.id), 'Restoring version ' + c.short);
+    },
+
+    activateCurrent() {
+      var msg =
+        'Build and activate your current settings?\n\n' +
+        'This runs a full activation (write-flake + nixos-rebuild) and can take several minutes.';
+      if (!window.confirm(msg)) return;
+      this.post('/actions/activate', 'Activating current settings');
+    },
+
+    genExists(n) {
+      return !!this.genRow(n) || (this.tree && this.tree.status && this.tree.status.headGeneration === n);
     },
 
     switchGen(n) {
@@ -542,7 +720,7 @@ window.versioningPage = function versioningPage() {
       this.post('/versioning/generations/' + n + '/switch', 'Switching to generation ' + n).then(function () {
         toast('Generation switch started', 'info');
         setTimeout(function () {
-          if (self.$root.isConnected) self.loadGenerations();
+          if (self.$root.isConnected) self.loadTree();
         }, 15000);
       });
     },
