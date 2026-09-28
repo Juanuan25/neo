@@ -33,7 +33,7 @@
         - No app password in Neo options; access is tinyauth + host user `homeserver` for config files
 
         ## Procedures
-        1. **Health**: `systemctl is-active neo-web`
+        1. **Health**: `systemctl is-active neo-bootstrap neo-web` (the web UI requires the config repo bootstrap; it stays enabled when system-updater is off)
         2. **Edit config**: open Neo UI or `neo edit` / edit settings.toml
         3. **Apply**: Activate in UI or `neo activate`
         4. **Troubleshoot apply**: read neo-web logs; check nix build errors in journal

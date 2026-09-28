@@ -1,4 +1,5 @@
-# System auto-updater: bootstrap + scheduled neo update/activate.
+# System auto-updater: scheduled neo update/activate.
+# The config repo is bootstrapped by neo-bootstrap (neo web service).
 {self, ...}: {
   flake.modules.nixos.system-updater = {
     config,
@@ -9,8 +10,6 @@
     cfg = config.neo.services.system-updater;
     updaterPaths = lib.neo.mkUpdaterPaths config.neo.core.volumes.appdata;
     systemHistoryDir = cfg.appdata;
-    # Always the server profile — never local/laptop paths.
-    serverCfg = config.neo.neo-cli.server;
     neo = self.packages.${pkgs.stdenv.hostPlatform.system}.neo;
     path = [
       neo
@@ -47,35 +46,12 @@
         }
       ];
 
-      systemd.services.neo-bootstrap = {
-        description = "Bootstrap nixos config git repo";
-        after = ["network-online.target"];
-        wants = ["network-online.target"];
-        wantedBy = ["multi-user.target"];
-        before = ["multi-user.target"];
-        inherit path;
-        inherit environment;
-        serviceConfig = {
-          Type = "oneshot";
-          RemainAfterExit = true;
-          User = "homeserver";
-          Group = "homeserver";
-        };
-        preStart = lib.neo.mkEnsureDirs config [
-          {
-            dirPath = serverCfg.configPath;
-            mode = "0755";
-          }
-        ];
-        script = ''
-          ${neo}/bin/neo --profile server init
-        '';
-      };
-
       systemd.services.neo-auto-update = {
         description = "Auto update and activate nixos config with neo";
-        wants = ["neo-bootstrap.service"];
-        after = ["neo-bootstrap.service"];
+        # neo-bootstrap is part of the neo web service. Wait for it when that
+        # service is on so a scheduled update does not start without a config repo.
+        wants = lib.optional config.neo.services.neo.enabled "neo-bootstrap.service";
+        after = lib.optional config.neo.services.neo.enabled "neo-bootstrap.service";
         inherit path;
         inherit environment;
         serviceConfig = {
@@ -164,7 +140,7 @@
         };
       };
 
-      # homeserver runs neo bootstrap/update/activate and optional GC as this user.
+      # homeserver runs neo update/activate and optional GC as this user.
       # (web UI store repair / journalctl / systemd-run / rm live on neo.services.neo)
       security.sudo.extraRules = lib.neo.mkSudoExtraRules {
         users = ["homeserver"];

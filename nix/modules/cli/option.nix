@@ -89,7 +89,7 @@
             };
             server = profileConfigPath {
               default = "${config.neo.core.volumes.appdata}/configuration";
-              description = "Config repo path on the homeserver (system-updater and on-box neo always use this profile)";
+              description = "Config repo path on the homeserver (neo-bootstrap and on-box neo always use this profile)";
               rank = 100;
             };
           };

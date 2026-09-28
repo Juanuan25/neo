@@ -48,7 +48,7 @@
         }
         {
           service = "neo";
-          units = ["neo-web"];
+          units = ["neo-web" "neo-bootstrap"];
           timers = [];
         }
         {
@@ -58,7 +58,7 @@
         }
         {
           service = "system-updater";
-          units = ["neo-bootstrap" "neo-auto-update"];
+          units = ["neo-auto-update"];
           timers = ["neo-auto-update"];
         }
         {
@@ -94,13 +94,17 @@
       (expectEq "tailscale/no-dnsmasq" (fixture.partOf ? dnsmasq) false)
       (expectEq "tailscale/daemon" fixture.partOf.tailscaled ["neo-tailscale.target"])
       (expectEq "neo-web/no-target" (fixture.targets ? neo-neo) false)
+      (expectEq "neo/bootstrap-not-a-member" (fixture.partOf ? neo-bootstrap) false)
       (expectEq "pihole/mixed" fixture.targets.neo-pihole.wants [
         "docker-pihole.service"
         "pihole-update-gravity.timer"
       ])
       (expectEq "pihole/gravity-not-restarted" (fixture.partOf ? pihole-update-gravity) false)
       (expectEq "pihole/gravity-stop-only" fixture.timerStopFrom.pihole-update-gravity ["neo-pihole.target"])
-      (expectEq "updater/bootstrap-restarts" fixture.partOf.neo-bootstrap ["neo-system-updater.target"])
+      (expectEq "updater/no-bootstrap" (
+          builtins.elem "neo-bootstrap.service" fixture.targets.neo-system-updater.wants
+        )
+        false)
       (expectEq "updater/job-not-restarted" (fixture.partOf ? neo-auto-update) false)
       (expectEq "updater/timer-armed" (
           builtins.elem "neo-auto-update.timer" fixture.targets.neo-system-updater.wants

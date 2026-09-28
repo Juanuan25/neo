@@ -129,7 +129,7 @@ nix run --extra-experimental-features "nix-command flakes" --refresh \
   github:madebydamo/neo#neo -- --settings ./settings.toml init
 ```
 
-Configuration appears under `./build` (local profile). The same settings file carries a **server** profile path for the homeserver and system-updater — no manual path rewrite before install.
+Configuration appears under `./build` (local profile). The same settings file carries a **server** profile path for the homeserver and neo-bootstrap — no manual path rewrite before install.
 
 ### 2. Fill in domain, keys, disks
 

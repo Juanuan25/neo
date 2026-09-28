@@ -16,7 +16,7 @@
       tags = ["neo" "updates"];
       body = ''
         ## When to Use
-        OS/Neo module updates, bootstrap config repo, garbage collection schedule.
+        OS/Neo module updates and the garbage collection schedule. The config repo unit is neo-bootstrap on the neo web service.
 
         ## CLI extras
         ```bash

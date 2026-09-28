@@ -2,6 +2,9 @@
 # Launches the neo CLI with `web` subcommand (Rocket server) as a systemd service.
 # Runs as homeserver user (write access to configPath/settings.toml).
 # Listens on loopback only; SWAG reaches it via host.docker.internal + DNAT forward.
+#
+# neo-bootstrap creates that config repo. multi-user wants it so the web UI
+# has a repo even when scheduled updates are off.
 {self, ...}: {
   flake.modules.nixos.neo = {
     config,
@@ -12,14 +15,66 @@
     cfg = config.neo.services.neo;
     neoPkg = self.packages.${pkgs.stdenv.hostPlatform.system}.neo;
     swagDomain = config.neo.services.swag.domain;
+    serverCfg = config.neo.neo-cli.server;
+    # AppData is root:root 0755 (volume / ZFS dataset). homeserver cannot
+    # mkdir a child there. This runs as root and chowns on every run, so a
+    # directory left behind by a failed mkdir is repaired.
+    ensureConfigRepo = ''
+      config_repo=${lib.escapeShellArg serverCfg.configPath}
+      if [ ! -d "$config_repo" ]; then
+        mkdir -p "$config_repo"
+      fi
+      chown homeserver:homeserver "$config_repo"
+      chmod 0755 "$config_repo"
+    '';
   in {
     config = lib.mkIf cfg.enabled (lib.mkMerge [
       (lib.neo.mkDockerToLocalhostForward cfg.port)
       {
+        system.activationScripts.neo-bootstrap-config = ensureConfigRepo;
+
+        systemd.services.neo-bootstrap = {
+          description = "Bootstrap nixos config git repo";
+          wantedBy = ["multi-user.target"];
+          before = ["neo-web.service" "multi-user.target"];
+          after = ["network-online.target"];
+          wants = ["network-online.target"];
+          path = [
+            neoPkg
+            pkgs.git
+            pkgs.nix
+            pkgs.nixos-rebuild
+            pkgs.nixos-install-tools
+            pkgs.coreutils
+            pkgs.bash
+            pkgs.jq
+          ];
+          environment = {
+            NIX_BINARY_PATH = "${pkgs.nix}/bin/nix";
+            SUDO_BINARY_PATH = "/run/wrappers/bin/sudo";
+          };
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            User = "homeserver";
+            Group = "homeserver";
+            ExecStartPre = [
+              "+${pkgs.writeShellScript "neo-bootstrap-ensure-config" ''
+                set -euo pipefail
+                ${ensureConfigRepo}
+              ''}"
+            ];
+          };
+          script = ''
+            ${neoPkg}/bin/neo --profile server init
+          '';
+        };
+
         systemd.services.neo-web = {
           description = "Neo Homeserver Web UI (config editor)";
           wantedBy = ["multi-user.target"];
-          after = ["network-online.target"];
+          requires = ["neo-bootstrap.service"];
+          after = ["network-online.target" "neo-bootstrap.service"];
           wants = ["network-online.target"];
 
           serviceConfig = {

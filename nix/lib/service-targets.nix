@@ -20,9 +20,12 @@
   # dnsmasq: host resolver. Zone file is /run/tailscale-split-dns; leases are
   # /var/lib/dnsmasq. It does not write Neo appdata.
   # neo-web: stopping it kills the UI that sent the action.
+  # neo-bootstrap: neo-web requires this oneshot. A target stop would stop
+  # the config repo unit and, through that requirement, the UI. It is wanted
+  # by multi-user and stays up when system-updater is disabled.
   # swag-patcher: docker-swag already Wants it and the patcher is PartOf
   # docker-swag, so the target reaches it once, through that container.
-  defaultExclude = ["dnsmasq" "neo-web" "swag-patcher"];
+  defaultExclude = ["dnsmasq" "neo-web" "neo-bootstrap" "swag-patcher"];
 
   zipUnitLists = maps:
     lib.zipAttrsWith (_name: vs: sort (lib.concatLists vs)) maps;
