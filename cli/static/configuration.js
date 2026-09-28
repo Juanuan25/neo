@@ -263,6 +263,8 @@ window.configShell = function configShell() {
  * Alpine state for the Services tab: search + status / category / source filters.
  * Cards (`[data-svc]`) carry data-enabled / data-cat / data-plugin-urls / data-search.
  * Filters persist per browser tab (sessionStorage) so returning from a service keeps them.
+ * Matching itself lives in services_filter.js (NeoServicesFilter), shared with its
+ * Node unit tests, so the tab count badges reuse the exact same rules as the cards.
  */
 window.servicesGrid = function servicesGrid() {
   var STORE_KEY = 'neo.servicesFilters';
@@ -331,29 +333,43 @@ window.servicesGrid = function servicesGrid() {
       return this.cardMatches(el, null);
     },
 
+    /**
+     * Match `el` against the current filters, with any of status/category/plugin
+     * replaced by `overrides`. Delegates to NeoServicesFilter (services_filter.js)
+     * so cards, category/source availability and the tab count badges all agree.
+     */
+    matches(el, overrides) {
+      overrides = overrides || {};
+      // Read every filter up front so Alpine tracks all of them as dependencies,
+      // even the ones an override below discards.
+      var filters = {
+        q: this.q,
+        status: 'status' in overrides ? overrides.status : this.status,
+        category: 'category' in overrides ? overrides.category : this.category,
+        plugin: 'plugin' in overrides ? overrides.plugin : this.plugin,
+      };
+      return window.NeoServicesFilter.serviceMatches(
+        window.NeoServicesFilter.cardFromDataset(el.dataset),
+        filters
+      );
+    },
+
     /** Match against every filter except `skip` ('category' | 'plugin'). */
     cardMatches(el, skip) {
-      // Read every filter up front so Alpine tracks all of them as dependencies.
-      var q = this.q.trim().toLowerCase();
-      var status = this.status;
-      var category = skip === 'category' ? 'all' : this.category;
-      var plugin = skip === 'plugin' ? 'all' : this.plugin;
-      var enabled = el.dataset.enabled === 'true';
-      if (status === 'installed' && !enabled) return false;
-      if (status === 'available' && enabled) return false;
-      if (category !== 'all' && el.dataset.cat !== category) return false;
-      if (plugin !== 'all') {
-        var urls = (el.dataset.pluginUrls || '').split('|').filter(Boolean);
-        if (plugin === 'core' ? urls.length !== 0 : urls.indexOf(plugin) === -1) return false;
+      if (skip === 'category') return this.matches(el, { category: 'all' });
+      if (skip === 'plugin') return this.matches(el, { plugin: 'all' });
+      return this.matches(el, {});
+    },
+
+    /** Cards that would be visible on tab `status`, given the other active filters. */
+    tabCount(status) {
+      var self = this;
+      var cards = this.$root.querySelectorAll('[data-svc]');
+      var n = 0;
+      for (var i = 0; i < cards.length; i++) {
+        if (self.matches(cards[i], { status: status })) n++;
       }
-      if (q) {
-        var hay = (el.dataset.search || '').toLowerCase();
-        var terms = q.split(/\s+/);
-        for (var i = 0; i < terms.length; i++) {
-          if (hay.indexOf(terms[i]) === -1) return false;
-        }
-      }
-      return true;
+      return n;
     },
 
     /** Category chip is offered when some card in it matches the other filters. */

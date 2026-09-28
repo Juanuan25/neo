@@ -62,13 +62,13 @@
     <div class="flex flex-wrap items-center gap-2">
       <div role="tablist" class="tabs tabs-box tabs-sm flex-nowrap" aria-label="Install status">
         <button type="button" role="tab" class="tab gap-1.5" :class="{ 'tab-active': status === 'all' }" @click="status = 'all'">
-          All <span class="text-[11px] opacity-50 tabular-nums" x-text="counts.all"></span>
+          All <span class="badge badge-ghost badge-xs tabular-nums" x-text="tabCount('all')"></span>
         </button>
         <button type="button" role="tab" class="tab gap-1.5" :class="{ 'tab-active': status === 'installed' }" @click="status = 'installed'">
-          Installed <span class="text-[11px] opacity-50 tabular-nums" x-text="counts.installed"></span>
+          Installed <span class="badge badge-ghost badge-xs tabular-nums" x-text="tabCount('installed')"></span>
         </button>
         <button type="button" role="tab" class="tab gap-1.5" :class="{ 'tab-active': status === 'available' }" @click="status = 'available'">
-          Available <span class="text-[11px] opacity-50 tabular-nums" x-text="counts.available"></span>
+          Available <span class="badge badge-ghost badge-xs tabular-nums" x-text="tabCount('available')"></span>
         </button>
       </div>
       {{#if plugin_filters}}

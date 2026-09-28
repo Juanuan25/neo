@@ -167,9 +167,9 @@ test-widgets:
   #!/usr/bin/env bash
   set -euo pipefail
   if command -v node >/dev/null 2>&1; then
-    node --test cli/templates/options/widgets/*.test.js cli/templates/options/widgets/test/*.test.js
+    node --test cli/templates/options/widgets/*.test.js cli/templates/options/widgets/test/*.test.js cli/static/*.test.js
   else
-    nix-shell -p nodejs --run 'node --test cli/templates/options/widgets/*.test.js cli/templates/options/widgets/test/*.test.js'
+    nix-shell -p nodejs --run 'node --test cli/templates/options/widgets/*.test.js cli/templates/options/widgets/test/*.test.js cli/static/*.test.js'
   fi
 
 check:
