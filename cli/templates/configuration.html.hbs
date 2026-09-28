@@ -112,7 +112,8 @@
                   aria-live="polite"
                   aria-hidden="true">
               <span class="loading loading-ring loading-sm"></span>
-              <span class="hidden lg:inline">Loading</span>
+              {{!-- nav_progress.js adds .is-slow after ~1.5s: label shows on every breakpoint. --}}
+              <span class="neo-busy-label hidden lg:inline">Loading…</span>
             </span>
             <div id="action-bar-dynamic"
                  class="flex items-center gap-1"
@@ -161,7 +162,8 @@
         {{!--
           Source for shell nav: htmx.ajax ignores context.push; history only updates from
           hx-push-url on the source element. navigateContent() passes this as `source`.
-          Loading feedback is #nav-busy in the navbar (load + eval; not a progress bar).
+          Loading feedback: #nav-busy in the navbar (load + eval) plus nav_progress.js
+          (top progress bar, pressed state on the clicked element, busy pane).
         --}}
         <span id="config-nav-helper"
               class="hidden"
@@ -256,5 +258,6 @@
     </dialog>
 
     <script src="/static/configuration.js"></script>
+    <script src="/static/nav_progress.js"></script>
   </body>
 </html>

@@ -119,6 +119,10 @@ Implementations: `cli/templates/options/widgets/<name>.html.hbs` + `<name>.js` (
 
 Reference consumers: `nix/services/tinyauth/option.nix` (`access` + `ui.choices = "authApps"`); `nix/services/hermes/option.nix` (`telegramAllowedUserId` + `primaryItemList`).
 
+### Loading feedback
+
+`cli/static/nav_progress.js` hooks htmx events generically: any request swapping into `#config-content` gets a delayed top progress bar (`#neo-progress`), a pressed/spinner state on the clicked element (`data-neo-loading`), a veiled target (`aria-busy` + `.neo-swap-busy`) and a "Loading…" label after ~1.5s. Opt other requests in with `data-neo-progress` (on the element or an ancestor), out with `data-neo-progress="false"`. Do not add per-page loading hacks.
+
 ## Live VM smoke test (default acceptance)
 
 Domain = `services.swag.domain` in settings. OCI unit = `docker-<container>`.
