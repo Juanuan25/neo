@@ -4,8 +4,9 @@ mod control;
 mod pull;
 
 pub use clear_appdata::{
-    clear_appdata_btn_oob, clear_appdata_out_oob, is_clear_appdata_in_flight, is_safe_appdata_path,
-    run_clear_appdata, try_begin_clear_appdata,
+    clear_appdata_btn_oob, clear_appdata_out_oob, end_clear_appdata, is_clear_appdata_in_flight,
+    is_safe_appdata_path, run_clear_appdata, start_units_best_effort, systemctl_action_blocking,
+    try_begin_clear_appdata, units_currently_running, wait_units_stopped,
 };
 pub use control::{
     broadcast_unit_update, extract_unit_state_from_oob, is_pull_in_flight,

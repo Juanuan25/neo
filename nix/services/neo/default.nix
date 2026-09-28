@@ -16,6 +16,8 @@
     neoPkg = self.packages.${pkgs.stdenv.hostPlatform.system}.neo;
     swagDomain = config.neo.services.swag.domain;
     serverCfg = config.neo.neo-cli.server;
+    # ZFS snapshots of service appdata (and machine restore) in the web UI.
+    zfsEnabled = config.boot.zfs.enabled;
     # AppData is root:root 0755 (volume / ZFS dataset). homeserver cannot
     # mkdir a child there. This runs as root and chowns on every run, so a
     # directory left behind by a failed mkdir is repaired.
@@ -104,6 +106,8 @@
             ROCKET_ADDRESS = "127.0.0.1";
             ROCKET_PORT = toString cfg.port;
             NEO_HELPER_BASH = "${pkgs.bash}/bin/bash";
+            ZFS_BINARY_PATH = lib.optionalString zfsEnabled "${config.boot.zfs.package}/bin/zfs";
+            RSYNC_BINARY_PATH = lib.optionalString zfsEnabled "${pkgs.rsync}/bin/rsync";
             # Explicit tool dirs for option helpers (used ahead of ambient PATH).
             NEO_HELPER_PATH = lib.makeBinPath [
               pkgs.bash
@@ -132,50 +136,63 @@
         # Keep in sync with every binary the web UI / activate path may invoke under sudo.
         security.sudo.extraRules = lib.neo.mkSudoExtraRules {
           users = ["homeserver"];
-          commands = [
-            # activate (web trigger → systemd-run → neo activate)
-            {
-              package = pkgs.nixos-rebuild;
-              name = "nixos-rebuild";
-            }
-            # unit status / start / stop / restart (web UI + activate cleanup)
-            {
-              package = pkgs.systemd;
-              name = "systemctl";
-            }
-            # live logs dialog (journalctl -f)
-            {
-              package = pkgs.systemd;
-              name = "journalctl";
-            }
-            # web apply/update: spawn neo-activate@ / neo-update@ oneshots
-            {
-              package = pkgs.systemd;
-              name = "systemd-run";
-            }
-            # clear appdata (stop → rm -rf → start)
-            {
-              package = pkgs.coreutils;
-              name = "rm";
-            }
-            # store repair (`sudo -n nix-store --verify --repair`)
-            {
-              package = pkgs.nix;
-              name = "nix-store";
-            }
-            # generation list/switch: `sudo -n nix-env -p … --switch-generation N`
-            {
-              package = pkgs.nix;
-              name = "nix-env";
-            }
-            # after profile switch: `/nix/var/nix/profiles/system/bin/switch-to-configuration`
-            {
-              command = "/nix/var/nix/profiles/system/bin/switch-to-configuration";
-            }
-            {
-              command = "/nix/var/nix/profiles/system-*-link/bin/switch-to-configuration";
-            }
-          ];
+          commands =
+            [
+              # activate (web trigger → systemd-run → neo activate)
+              {
+                package = pkgs.nixos-rebuild;
+                name = "nixos-rebuild";
+              }
+              # unit status / start / stop / restart (web UI + activate cleanup)
+              {
+                package = pkgs.systemd;
+                name = "systemctl";
+              }
+              # live logs dialog (journalctl -f)
+              {
+                package = pkgs.systemd;
+                name = "journalctl";
+              }
+              # web apply/update: spawn neo-activate@ / neo-update@ oneshots
+              {
+                package = pkgs.systemd;
+                name = "systemd-run";
+              }
+              # clear appdata (stop → rm -rf → start)
+              {
+                package = pkgs.coreutils;
+                name = "rm";
+              }
+              # store repair (`sudo -n nix-store --verify --repair`)
+              {
+                package = pkgs.nix;
+                name = "nix-store";
+              }
+              # generation list/switch: `sudo -n nix-env -p … --switch-generation N`
+              {
+                package = pkgs.nix;
+                name = "nix-env";
+              }
+              # after profile switch: `/nix/var/nix/profiles/system/bin/switch-to-configuration`
+              {
+                command = "/nix/var/nix/profiles/system/bin/switch-to-configuration";
+              }
+              {
+                command = "/nix/var/nix/profiles/system-*-link/bin/switch-to-configuration";
+              }
+            ]
+            ++ lib.optionals zfsEnabled [
+              # appdata / machine snapshots: snapshot, schedule restore (set/inherit)
+              {
+                package = config.boot.zfs.package;
+                name = "zfs";
+              }
+              # restore service appdata from <mount>/.zfs/snapshot/<snap>/…
+              {
+                package = pkgs.rsync;
+                name = "rsync";
+              }
+            ];
         };
       }
     ]);

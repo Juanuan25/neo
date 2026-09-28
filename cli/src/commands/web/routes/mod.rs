@@ -8,6 +8,7 @@ mod oauth;
 mod pages;
 mod save;
 mod settings_file;
+mod snapshots;
 mod ssh;
 mod units;
 mod ws;
@@ -67,6 +68,15 @@ pub fn routes() -> Vec<rocket::Route> {
         units::unit_stop,
         units::container_update,
         units::clear_appdata,
+        snapshots::service_snapshots,
+        snapshots::service_snapshot_create,
+        snapshots::service_snapshot_restore,
+        snapshots::versioning_zfs,
+        snapshots::versioning_zfs_snapshot,
+        snapshots::versioning_zfs_restore,
+        snapshots::versioning_zfs_reboot,
+        snapshots::versioning_zfs_cancel,
+        snapshots::versioning_zfs_dismiss,
         units::sse_logs,
         ws::ws_status,
         ssh::ssh_public_key_card,

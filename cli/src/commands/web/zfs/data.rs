@@ -1,0 +1,497 @@
+//! Restore of all Neo data (versioning tab).
+//!
+//! Only the dataset behind `neo.core.volumes.root` (`zroot/neo`) is restored;
+//! the system (root, /nix) is never snapshotted. The swap runs at the next
+//! boot in the initrd (`nix/modules/disko/zfs-restore.sh`), because every
+//! service, the config repo, and this web UI live on that dataset. The web UI
+//! schedules it with `neo:restore` on the pool and reboots.
+//!
+//! Optionally the boot generation is switched to the one that was active when
+//! the snapshot was taken, so restored settings and system match.
+use std::time::{Duration, UNIX_EPOCH};
+
+use tokio::process::Command as AsyncCommand;
+
+use super::super::util::{escape_attr, escape_html, sudo_cmd};
+use super::{
+    create_snapshot, dataset_name_ok, format_age, format_epoch_utc, get_property, human_bytes,
+    inherit_property, list_filesystems, list_snapshots, now_epoch, now_ts, set_property,
+    snapshot_kind, snapshot_name_ok, Snapshot,
+};
+use crate::utils::{current_generation_number, switch_system_generation, GenerationMode};
+
+const PROP_RESTORE: &str = "neo:restore";
+const PROP_RESULT: &str = "neo:restore-result";
+const CARD_ID: &str = "versioning-zfs";
+/// Most snapshots shown per dataset (newest first).
+const MAX_ROWS: usize = 60;
+
+/// Pool and data dataset, set on neo-web by the disko module when the initrd
+/// hook exists. None: the feature is not available on this machine.
+pub fn restore_target() -> Option<(String, String)> {
+    let pool = std::env::var("NEO_ZFS_RESTORE_POOL").ok()?;
+    let ds = std::env::var("NEO_ZFS_RESTORE_DATASET").ok()?;
+    if pool.is_empty() || !dataset_name_ok(&pool) || !dataset_name_ok(&ds) {
+        return None;
+    }
+    if !ds.starts_with(&format!("{pool}/")) {
+        return None;
+    }
+    Some((pool, ds))
+}
+
+/// `<ds>.prev-YYYYMMDD-HHMMSS`: the state a restore replaced.
+fn prev_suffix<'a>(live: &str, name: &'a str) -> Option<&'a str> {
+    let ts = name.strip_prefix(live)?.strip_prefix(".prev-")?;
+    let ok = ts.len() == 15
+        && ts.as_bytes()[8] == b'-'
+        && ts
+            .char_indices()
+            .all(|(i, c)| if i == 8 { c == '-' } else { c.is_ascii_digit() });
+    ok.then_some(ts)
+}
+
+fn ts_display(ts: &str) -> String {
+    // 20260928-101500 → 2026-09-28 10:15 UTC
+    if ts.len() == 15 {
+        format!(
+            "{}-{}-{} {}:{} UTC",
+            &ts[0..4],
+            &ts[4..6],
+            &ts[6..8],
+            &ts[9..11],
+            &ts[11..13]
+        )
+    } else {
+        ts.to_string()
+    }
+}
+
+/// System generations with their creation time (profile link mtime).
+fn generations_by_time() -> Vec<(u64, i64)> {
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir("/nix/var/nix/profiles") else {
+        return out;
+    };
+    for e in rd.flatten() {
+        let name = e.file_name();
+        let Some(n) = name
+            .to_str()
+            .and_then(|s| s.strip_prefix("system-"))
+            .and_then(|s| s.strip_suffix("-link"))
+            .and_then(|s| s.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        let Ok(meta) = std::fs::symlink_metadata(e.path()) else {
+            continue;
+        };
+        let t = meta
+            .modified()
+            .ok()
+            .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        out.push((n, t));
+    }
+    out.sort();
+    out
+}
+
+/// Generation that was active at `t`: the newest one created at or before it.
+/// (A later manual switch to an older generation is not visible here.)
+fn generation_at(gens: &[(u64, i64)], t: i64) -> Option<u64> {
+    gens.iter()
+        .filter(|(_, created)| *created <= t)
+        .max_by_key(|(n, created)| (*created, *n))
+        .map(|(n, _)| *n)
+}
+
+struct Banner {
+    tone: &'static str,
+    html: String,
+}
+
+pub async fn render_card(notice: Option<(&'static str, String)>) -> String {
+    let Some((pool, live)) = restore_target() else {
+        // Not a disko/ZFS machine: nothing to show.
+        return format!(r#"<div id="{CARD_ID}" class="hidden"></div>"#);
+    };
+
+    let mut banners: Vec<Banner> = Vec::new();
+    if let Some((tone, msg)) = notice {
+        banners.push(Banner { tone, html: msg });
+    }
+
+    let pending = get_property(&pool, PROP_RESTORE).await.ok().flatten();
+    if let Some(p) = &pending {
+        let target = p
+            .split('|')
+            .nth(1)
+            .and_then(|m| m.split('=').nth(1))
+            .unwrap_or(p);
+        banners.push(Banner {
+            tone: "alert-warning",
+            html: format!(
+                r##"<span>Restore to <span class="font-mono">{}</span> runs at the next boot.</span>
+<span class="flex gap-1 ml-auto"><button type="button" class="btn btn-xs btn-error" hx-post="/versioning/zfs/reboot" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-confirm="Reboot the server now and restore all Neo data?">Reboot now</button>
+<button type="button" class="btn btn-xs" hx-post="/versioning/zfs/cancel" hx-target="#{CARD_ID}" hx-swap="outerHTML">Cancel</button></span>"##,
+                escape_html(target)
+            ),
+        });
+    }
+    if let Some(r) = get_property(&pool, PROP_RESULT).await.ok().flatten() {
+        let mut parts = r.splitn(3, '|');
+        let status = parts.next().unwrap_or("");
+        let ts = parts.next().unwrap_or("");
+        let detail = parts.next().unwrap_or("");
+        let (tone, head) = if status == "ok" {
+            ("alert-success", "Last restore succeeded")
+        } else {
+            ("alert-error", "Last restore failed")
+        };
+        banners.push(Banner {
+            tone,
+            html: format!(
+                r##"<span>{head} ({when}): <span class="font-mono">{detail}</span></span>
+<button type="button" class="btn btn-xs btn-ghost ml-auto" hx-post="/versioning/zfs/dismiss" hx-target="#{CARD_ID}" hx-swap="outerHTML">Dismiss</button>"##,
+                when = escape_html(&ts_display(ts)),
+                detail = escape_html(detail),
+            ),
+        });
+    }
+
+    let gens = tokio::task::spawn_blocking(generations_by_time)
+        .await
+        .unwrap_or_default();
+    let current_gen = current_generation_number();
+    let now = now_epoch();
+    let busy = pending.is_some();
+
+    let mut html = format!(
+        r##"<div id="{CARD_ID}" class="border border-base-300 rounded overflow-hidden">
+<div class="bg-base-200 px-3 py-1.5 text-xs font-semibold flex items-center justify-between gap-2 flex-wrap">
+  <span>Data snapshots (ZFS · <span class="font-mono font-normal">{live}</span>)</span>
+  <span class="flex gap-1">
+    <button type="button" class="btn btn-xs btn-outline" hx-post="/versioning/zfs/snapshot" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" title="zfs snapshot {live}@neo-data-…">Snapshot now</button>
+    <button type="button" class="btn btn-ghost btn-xs" hx-get="/versioning/zfs" hx-target="#{CARD_ID}" hx-swap="outerHTML">Refresh</button>
+  </span>
+</div>
+<div class="p-2 space-y-2 text-sm">
+<div class="text-[11px] opacity-70 leading-snug">
+  Restores <b>all Neo data</b> (appdata of every service, the configuration repo, and anything else on this dataset) by rebooting and swapping the dataset during boot.
+  <b>Files only:</b> the NixOS system is not snapshotted and stays on the current generation{cur}.
+  Either run <i>Activate</i> afterwards to rebuild from the restored settings, or use <i>+ boot gen</i> to also boot the generation that was active when the snapshot was taken.
+  The replaced state is kept below as <i>before restore</i>, so a restore can be undone.
+</div>"##,
+        live = escape_html(&live),
+        cur = current_gen.map(|g| format!(" ({g})")).unwrap_or_default(),
+    );
+
+    for b in &banners {
+        html.push_str(&format!(
+            r#"<div role="alert" class="alert {} py-1.5 px-2 text-xs flex flex-wrap gap-2 items-center">{}</div>"#,
+            b.tone, b.html
+        ));
+    }
+
+    let ctx = RowCtx {
+        live: &live,
+        gens: &gens,
+        current_gen,
+        now,
+        busy,
+    };
+
+    match list_snapshots(&live, false).await {
+        Err(e) => html.push_str(&format!(
+            r#"<div class="text-error text-xs">{}</div>"#,
+            escape_html(&e)
+        )),
+        Ok(list) => html.push_str(&snapshot_table("Current data", &live, &list, &ctx)),
+    }
+
+    // States replaced by earlier restores, newest restore first.
+    let mut prevs: Vec<(String, String)> = list_filesystems(&pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|d| prev_suffix(&live, &d).map(|ts| (ts.to_string(), d.clone())))
+        .collect();
+    prevs.sort();
+    prevs.reverse();
+    for (ts, ds) in prevs {
+        if let Ok(list) = list_snapshots(&ds, false).await {
+            let title = format!("Before restore at {}", ts_display(&ts));
+            html.push_str(&snapshot_table(&title, &ds, &list, &ctx));
+        }
+    }
+
+    html.push_str("</div></div>");
+    html
+}
+
+struct RowCtx<'a> {
+    live: &'a str,
+    gens: &'a [(u64, i64)],
+    current_gen: Option<u64>,
+    now: i64,
+    busy: bool,
+}
+
+fn snapshot_table(title: &str, ds: &str, list: &[Snapshot], ctx: &RowCtx) -> String {
+    let mut html = format!(
+        r#"<details class="rounded border border-base-300 bg-base-100"{open}>
+<summary class="cursor-pointer px-2 py-1 text-xs font-semibold flex items-center gap-2"><span>{title}</span><span class="font-mono font-normal opacity-50 text-[10px]">{ds}</span><span class="badge badge-xs badge-ghost">{n}</span></summary>"#,
+        open = if ds == ctx.live { " open" } else { "" },
+        title = escape_html(title),
+        ds = escape_html(ds),
+        n = list.len(),
+    );
+    if list.is_empty() {
+        html.push_str(r#"<div class="px-2 pb-2 text-[11px] opacity-50">No snapshots.</div>"#);
+    } else {
+        html.push_str(
+            r#"<div class="max-h-80 overflow-auto"><table class="table table-xs"><tbody>"#,
+        );
+        for s in list.iter().rev().take(MAX_ROWS) {
+            html.push_str(&data_row(s, ctx));
+        }
+        html.push_str("</tbody></table></div>");
+        if list.len() > MAX_ROWS {
+            html.push_str(&format!(
+                r#"<div class="px-2 pb-1 text-[10px] opacity-50">{MAX_ROWS} newest of {} shown.</div>"#,
+                list.len()
+            ));
+        }
+    }
+    html.push_str("</details>");
+    html
+}
+
+fn data_row(s: &Snapshot, ctx: &RowCtx) -> String {
+    let (kind, badge) = snapshot_kind(&s.name);
+    let when = format_epoch_utc(s.creation);
+    let gen = generation_at(ctx.gens, s.creation);
+
+    let base_warning = format!(
+        "RESTORE ALL NEO DATA to {full} ({when})?\n\n\
+         • The server REBOOTS NOW. The swap happens during boot; every service is down until the boot finishes.\n\
+         • {live} (appdata of ALL services, the configuration repo, …) is replaced: everything written after {when} is gone from the live data.\n\
+         • The current state is kept as {live}.prev-… and listed here, so you can switch back.",
+        full = s.full,
+        live = ctx.live,
+    );
+
+    let q = format!(
+        "ds={}&snap={}",
+        escape_attr(&s.dataset),
+        escape_attr(&s.name)
+    );
+    let mut actions = String::new();
+    if ctx.busy {
+        actions.push_str(r#"<button type="button" class="btn btn-xs btn-disabled" disabled title="A restore is already scheduled">Restore</button>"#);
+    } else {
+        let data_only = format!(
+            "{base_warning}\n• FILES ONLY: the system stays on generation {cur}. Run Activate afterwards if the restored settings should be applied.",
+            cur = ctx
+                .current_gen
+                .map(|g| g.to_string())
+                .unwrap_or_else(|| "(current)".into()),
+        );
+        actions.push_str(&format!(
+            r##"<button type="button" class="btn btn-xs btn-warning" hx-post="/versioning/zfs/restore?{q}" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data only; keep the current system generation">Restore</button>"##,
+            c = escape_attr(&data_only),
+        ));
+        if let Some(g) = gen.filter(|g| Some(*g) != ctx.current_gen) {
+            let with_gen = format!(
+                "{base_warning}\n• The boot default is set to system generation {g} (active when the snapshot was taken) before the reboot."
+            );
+            actions.push_str(&format!(
+                r##" <button type="button" class="btn btn-xs btn-error" hx-post="/versioning/zfs/restore?{q}&gen={g}" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data and boot system generation {g}">+ boot gen {g}</button>"##,
+                c = escape_attr(&with_gen),
+            ));
+        }
+    }
+
+    let gen_cell = match gen {
+        // No system profile (dev VM, non-NixOS): nothing to match against.
+        _ if ctx.gens.is_empty() => String::new(),
+        Some(g) if Some(g) == ctx.current_gen => format!(r#"gen {g} <span class="opacity-50">(current)</span>"#),
+        Some(g) => format!("gen {g}"),
+        None => r#"<span class="opacity-50" title="No surviving generation is older than this snapshot">gen ?</span>"#.to_string(),
+    };
+
+    format!(
+        r#"<tr class="hover"><td class="w-0 whitespace-nowrap"><span class="badge badge-xs {badge}">{kind}</span></td><td class="font-mono text-[11px] whitespace-nowrap" title="{full}">{when}</td><td class="text-[10px] opacity-60 whitespace-nowrap">{age}</td><td class="text-[10px] opacity-60 whitespace-nowrap hidden sm:table-cell">{gen_cell}</td><td class="text-[10px] opacity-50 whitespace-nowrap hidden md:table-cell">{used}</td><td class="text-right whitespace-nowrap">{actions}</td></tr>"#,
+        kind = escape_html(&kind),
+        full = escape_attr(&s.full),
+        when = escape_html(&when),
+        age = format_age(ctx.now, s.creation),
+        used = human_bytes(s.used),
+    )
+}
+
+fn ok_notice(msg: &str) -> Option<(&'static str, String)> {
+    Some(("alert-success", escape_html(msg)))
+}
+
+fn err_notice(msg: &str) -> Option<(&'static str, String)> {
+    Some(("alert-error", escape_html(msg)))
+}
+
+pub async fn snapshot_now() -> String {
+    let Some((_, live)) = restore_target() else {
+        return render_card(None).await;
+    };
+    let name = format!("neo-data-{}", now_ts());
+    let notice = match create_snapshot(&live, &name).await {
+        Ok(full) => ok_notice(&format!("created {full}")),
+        Err(e) => err_notice(&e),
+    };
+    render_card(notice).await
+}
+
+pub async fn cancel() -> String {
+    let notice = match restore_target() {
+        Some((pool, _)) => match inherit_property(&pool, PROP_RESTORE).await {
+            Ok(()) => ok_notice("scheduled restore cancelled"),
+            Err(e) => err_notice(&e),
+        },
+        None => None,
+    };
+    render_card(notice).await
+}
+
+pub async fn dismiss() -> String {
+    if let Some((pool, _)) = restore_target() {
+        let _ = inherit_property(&pool, PROP_RESULT).await;
+    }
+    render_card(None).await
+}
+
+/// Reboot shortly after answering, so the response reaches the browser.
+fn schedule_reboot() {
+    tokio::spawn(async {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let out = AsyncCommand::new(sudo_cmd())
+            .args(["-n", "systemctl", "reboot", "--no-ask-password"])
+            .output()
+            .await;
+        if let Err(e) = out {
+            eprintln!("web: reboot for zfs restore: {e}");
+        }
+    });
+}
+
+fn rebooting_card(msg: &str) -> String {
+    format!(
+        r#"<div id="{CARD_ID}" class="border border-base-300 rounded p-3 space-y-2"><div role="alert" class="alert alert-warning text-sm"><span class="loading loading-spinner loading-sm"></span><span>{}</span></div><p class="text-xs opacity-70">The UI reconnects once the server is back. Check the result banner in this tab afterwards.</p></div>"#,
+        escape_html(msg)
+    )
+}
+
+pub async fn reboot_now() -> String {
+    let Some((pool, _)) = restore_target() else {
+        return render_card(None).await;
+    };
+    if get_property(&pool, PROP_RESTORE)
+        .await
+        .ok()
+        .flatten()
+        .is_none()
+    {
+        return render_card(err_notice("no restore is scheduled")).await;
+    }
+    schedule_reboot();
+    rebooting_card("Rebooting to restore Neo data…")
+}
+
+/// Validate, optionally switch the boot generation, schedule the swap, reboot.
+pub async fn restore(ds: &str, snap: &str, gen: Option<u64>) -> String {
+    let Some((pool, live)) = restore_target() else {
+        return render_card(err_notice("data restore is not available on this machine")).await;
+    };
+    if !dataset_name_ok(ds) || !snapshot_name_ok(snap) {
+        return render_card(err_notice("invalid snapshot")).await;
+    }
+    if ds != live && prev_suffix(&live, ds).is_none() {
+        return render_card(err_notice("snapshot is not of the Neo data dataset")).await;
+    }
+    if get_property(&pool, PROP_RESTORE)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return render_card(err_notice("a restore is already scheduled")).await;
+    }
+    match list_snapshots(ds, false).await {
+        Ok(list) if list.iter().any(|s| s.name == snap) => {}
+        Ok(_) => return render_card(err_notice(&format!("{ds}@{snap} not found"))).await,
+        Err(e) => return render_card(err_notice(&e)).await,
+    }
+
+    if let Some(n) = gen {
+        let sudo = sudo_cmd();
+        let res = tokio::task::spawn_blocking(move || {
+            switch_system_generation(n, GenerationMode::Boot, &sudo)
+        })
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()));
+        if let Err(e) = res {
+            return render_card(err_notice(&format!(
+                "setting boot generation {n} failed, nothing scheduled: {e}"
+            )))
+            .await;
+        }
+    }
+
+    let value = format!("{}|{}={}@{}", now_ts(), live, ds, snap);
+    if let Err(e) = set_property(&pool, PROP_RESTORE, &value).await {
+        return render_card(err_notice(&format!("scheduling failed: {e}"))).await;
+    }
+    // A stale result would read like the outcome of this restore.
+    let _ = inherit_property(&pool, PROP_RESULT).await;
+
+    schedule_reboot();
+    let gen_msg = gen
+        .map(|g| format!(" and booting generation {g}"))
+        .unwrap_or_default();
+    rebooting_card(&format!(
+        "Rebooting to restore Neo data to {ds}@{snap}{gen_msg}…"
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prev_dataset_names() {
+        assert_eq!(
+            prev_suffix("zroot/neo", "zroot/neo.prev-20260928-101500"),
+            Some("20260928-101500")
+        );
+        assert_eq!(prev_suffix("zroot/neo", "zroot/neo"), None);
+        assert_eq!(prev_suffix("zroot/neo", "zroot/neo.prev-2026"), None);
+        assert_eq!(
+            prev_suffix("zroot/neo", "zroot/neox.prev-20260928-101500"),
+            None
+        );
+    }
+
+    #[test]
+    fn generation_matching() {
+        let gens = [(10, 100), (11, 200), (12, 300)];
+        assert_eq!(generation_at(&gens, 50), None);
+        assert_eq!(generation_at(&gens, 200), Some(11));
+        assert_eq!(generation_at(&gens, 250), Some(11));
+        assert_eq!(generation_at(&gens, 1000), Some(12));
+    }
+
+    #[test]
+    fn ts_format() {
+        assert_eq!(ts_display("20260928-101500"), "2026-09-28 10:15 UTC");
+    }
+}

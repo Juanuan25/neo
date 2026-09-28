@@ -8,6 +8,10 @@
     cfg = config.neo.disko;
     sanitize = n: lib.replaceStrings ["/" "-" "." " "] ["" "" "" ""] (baseNameOf n);
     volumesRoot = config.neo.core.volumes.root;
+    # Restore of the whole Neo data dataset runs in the systemd initrd
+    # (see zfs-restore.sh). The system itself (root, /nix) is never snapshotted.
+    dataRestore = cfg.enabled && config.boot.initrd.systemd.enable;
+    dataDataset = "${cfg.poolName}/neo";
   in {
     imports = [inputs.disko.nixosModules.disko];
     disko.devices = lib.mkIf cfg.enabled {
@@ -116,6 +120,26 @@
     };
 
     environment.systemPackages = lib.mkIf cfg.enabled [pkgs.zfs];
+
+    boot.initrd.systemd.services = lib.mkIf dataRestore {
+      neo-zfs-restore = {
+        description = "Neo: restore Neo data to a ZFS snapshot (scheduled from the web UI)";
+        wantedBy = ["initrd.target"];
+        requires = ["zfs-import-${cfg.poolName}.service"];
+        after = ["zfs-import-${cfg.poolName}.service"];
+        before = ["sysroot.mount" "initrd-root-fs.target" "initrd-fs.target"];
+        unitConfig.DefaultDependencies = "no";
+        serviceConfig.Type = "oneshot";
+        environment.NEO_POOL = cfg.poolName;
+        script = builtins.readFile ./zfs-restore.sh;
+      };
+    };
+
+    # neo-web: the full data restore is offered only where the initrd hook exists.
+    systemd.services.neo-web.environment = lib.mkIf (dataRestore && config.neo.services.neo.enabled) {
+      NEO_ZFS_RESTORE_POOL = cfg.poolName;
+      NEO_ZFS_RESTORE_DATASET = dataDataset;
+    };
 
     services.zfs.autoSnapshot = lib.mkIf cfg.enabled {
       enable = true;

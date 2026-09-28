@@ -132,7 +132,7 @@ fn unit_was_running(state: &str) -> bool {
 }
 
 /// Snapshot units that are currently running (should be restarted after clear).
-async fn units_currently_running(units: &[String]) -> Vec<String> {
+pub async fn units_currently_running(units: &[String]) -> Vec<String> {
     let mut running = Vec::new();
     for u in units {
         let state = unit_active_state_async(u).await;
@@ -143,7 +143,7 @@ async fn units_currently_running(units: &[String]) -> Vec<String> {
     running
 }
 
-async fn wait_units_stopped(units: &[String], timeout: Duration) -> Result<(), String> {
+pub async fn wait_units_stopped(units: &[String], timeout: Duration) -> Result<(), String> {
     if units.is_empty() {
         return Ok(());
     }
@@ -169,7 +169,7 @@ async fn wait_units_stopped(units: &[String], timeout: Duration) -> Result<(), S
     }
 }
 
-async fn start_units_best_effort(units: &[String], config: &Arc<AppConfig>) {
+pub async fn start_units_best_effort(units: &[String], config: &Arc<AppConfig>) {
     for u in units {
         if let Err(e) = systemctl_action_blocking("start", u).await {
             eprintln!("web: clear-appdata start {}: {}", u, e);
@@ -178,7 +178,7 @@ async fn start_units_best_effort(units: &[String], config: &Arc<AppConfig>) {
     }
 }
 
-async fn systemctl_action_blocking(action: &str, unit: &str) -> Result<(), String> {
+pub async fn systemctl_action_blocking(action: &str, unit: &str) -> Result<(), String> {
     let sudo = sudo_cmd();
     let out = AsyncCommand::new(&sudo)
         .args(["systemctl", action, unit, "--no-ask-password"])

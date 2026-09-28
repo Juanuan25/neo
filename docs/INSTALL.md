@@ -308,6 +308,11 @@ For greenfield installs, Neo can partition with [Disko](https://github.com/nix-c
 
 Default: boot partition + ZFS for the system and Neo data (with snapshots on Neo’s data dataset). One disk today: `mainDisk` becomes the OS pool (`zroot`). Extra disks in `additionalDisks` each get their own pool.
 
+Snapshots are restorable from the web UI (only Neo's data dataset is snapshotted, never the system or `/nix`):
+
+- **Service pane → Snapshots:** list, *Snapshot now*, *Restore*. Restore takes a `neo-prerestore-<service>-…` snapshot, stops `neo-<service>.target`, copies the service's appdata folder back from the snapshot (other services are untouched), and starts it again.
+- **Versioning → Data snapshots:** restores *all* Neo data (every service's appdata and the config repo). The server reboots and the initrd swaps `zroot/neo` for a clone of the snapshot; the replaced state stays as `zroot/neo.prev-<ts>` and is listed there, so a restore can be undone. This restores files only. Run *Activate* afterwards, or use *+ boot gen N* to also boot the system generation that was active when the snapshot was taken.
+
 **Only enable when you intend to erase those disks.**
 
 Live USB with too little space: [mount a second disk for the build](#when-the-laptop-cannot-build-mac-live-usb-or-wrong-architecture), keep `mainDisk` on the drive you want Disko to format.

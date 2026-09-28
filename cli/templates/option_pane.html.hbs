@@ -14,6 +14,12 @@
       {{> pane/header_compact}}
     {{/if}}
     {{> pane/runtime_units}}
+    {{#if appdata}}
+      {{!-- ZFS snapshots of the appdata dataset (lazy: zfs list runs per request). --}}
+      <div id="snapshots-{{service}}" hx-get="/service/{{service}}/snapshots" hx-trigger="load" hx-swap="outerHTML" class="mb-2 text-[10px] opacity-40">
+        <span class="loading loading-spinner loading-xs"></span> snapshots…
+      </div>
+    {{/if}}
 
     <div class="text-[10px] text-base-content/50 -mt-1{{#if options}} mb-0{{else}} mb-2 sm:mb-3{{/if}}">
       Values loaded from flake evaluation (current where set in your nixosConfiguration).

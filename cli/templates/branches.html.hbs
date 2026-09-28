@@ -56,6 +56,9 @@
     <div id="versioning-diff" class="p-2"></div>
   </div>
 
+  {{!-- ZFS snapshots of all Neo data (hidden when the machine has no restore hook) --}}
+  <div id="versioning-zfs" hx-get="/versioning/zfs" hx-trigger="load" hx-swap="outerHTML"></div>
+
   {{!-- System generations --}}
   <div class="border border-base-300 rounded overflow-hidden">
     <div class="bg-base-200 px-3 py-1.5 text-xs font-semibold flex items-center justify-between gap-2">
