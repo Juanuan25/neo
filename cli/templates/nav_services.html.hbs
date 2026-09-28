@@ -55,6 +55,13 @@
       {{else}}
         <span class="text-3xl leading-none">⚙</span>
       {{/if}}
+      {{!-- Runtime health; painted by service_status.js (one batched request). --}}
+      <span class="neo-unit-dot absolute -top-0.5 -right-1 ring-2 ring-base-200"
+            data-service-status="{{name}}"
+            data-units="{{#each units}}{{this}}{{#unless @last}} {{/unless}}{{/each}}"
+            data-timers="{{#each timers}}{{this}}{{#unless @last}} {{/unless}}{{/each}}"
+            role="img"
+            aria-label="{{name}}: checking status"></span>
       <span class="absolute -bottom-0.5 -right-1 text-[7px] font-bold bg-base-100 text-base-content px-0.5 py-px leading-none rounded ring-1 ring-base-content/15 font-mono">
         {{initials}}
       </span>

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
 
 use super::super::schema_cache::SchemaCache;
+use super::super::units::UnitStatusCache;
 use super::super::util::InFlightSet;
 
 #[derive(Clone, Debug)]
@@ -24,4 +25,7 @@ pub struct AppConfig {
     pub clear_appdata_in_flight: Arc<InFlightSet>,
     /// Process-local option schema cache for helper resolution (avoids re-taking eval mutex).
     pub schema_cache: Arc<tokio::sync::RwLock<SchemaCache>>,
+    /// Few-second, single-flight cache of batched `systemctl show` results for the
+    /// services-page status dots (one systemd query per refresh for the whole page).
+    pub unit_status: Arc<UnitStatusCache>,
 }

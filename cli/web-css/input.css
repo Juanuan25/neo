@@ -331,8 +331,12 @@ html.neo-bars-fused #options-sticky-save {
 }
 
 /*
- * Option pane: live unit summary dot (header badge + Status tab). State set by
- * configuration.js (unitSummary) from the per-unit data-active-state.
+ * Unit health dot. Summary states come from NeoUnitHealth.summarize
+ * (static/service_status.js) — shared by the option pane (header badge + Status
+ * tab) and the services grid / navigator sidebar dots:
+ *   ok → green · partial | changing → amber · failed | down → red ·
+ *   none (unknown / not deployed) → grey · unknown (still checking) → pulse.
+ * `busy` is a generic "live" indicator (logs dialog), not a summary state.
  */
 .neo-unit-dot {
   display: inline-block;
@@ -342,9 +346,22 @@ html.neo-bars-fused #options-sticky-save {
   flex-shrink: 0;
   background-color: var(--color-base-300);
 }
+.neo-unit-dot--lg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
 .neo-unit-dot[data-state="ok"] { background-color: var(--color-success); }
 .neo-unit-dot[data-state="partial"] { background-color: var(--color-warning); }
-.neo-unit-dot[data-state="failed"] { background-color: var(--color-error); }
+.neo-unit-dot[data-state="changing"] {
+  background-color: var(--color-warning);
+  animation: neo-dot-pulse 1.4s ease-in-out infinite;
+}
+.neo-unit-dot[data-state="failed"],
+.neo-unit-dot[data-state="down"] { background-color: var(--color-error); }
+.neo-unit-dot[data-state="none"],
+.neo-unit-dot[data-service-status]:not([data-state]) {
+  background-color: color-mix(in oklab, var(--color-base-content) 30%, var(--color-base-100));
+}
 .neo-unit-dot[data-state="busy"],
 .neo-unit-dot[data-state="unknown"] {
   background-color: var(--color-info);

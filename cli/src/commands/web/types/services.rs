@@ -26,6 +26,12 @@ pub struct Service {
     /// Display badges (filled in Rust after extract; labels may overlap).
     #[serde(default)]
     pub plugins: Vec<ServicePlugin>,
+    /// Systemd units of an installed service (grid status dot; empty when disabled).
+    #[serde(default)]
+    pub units: Vec<String>,
+    /// Timer-backed subset of `units` (idle between runs; only failures count).
+    #[serde(default)]
+    pub timers: Vec<String>,
 }
 
 /// One plugin that owns (or co-owns) a service. `url` is the identity; `label` may collide.
@@ -135,6 +141,12 @@ pub struct ProxiedService {
     pub rank: Option<i64>,
     #[serde(default = "default_true")]
     pub iframeCompatible: bool,
+    /// Systemd units (sidebar status dot).
+    #[serde(default)]
+    pub units: Vec<String>,
+    /// Timer-backed subset of `units`.
+    #[serde(default)]
+    pub timers: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Default)]

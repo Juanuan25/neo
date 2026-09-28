@@ -68,6 +68,7 @@ pub fn routes() -> Vec<rocket::Route> {
         units::unit_stop,
         units::container_update,
         units::clear_appdata,
+        units::services_status,
         snapshots::service_snapshots,
         snapshots::service_snapshot_create,
         snapshots::service_snapshot_restore,

@@ -71,6 +71,7 @@ pub fn web(
             schema_cache: Arc::new(tokio::sync::RwLock::new(
                 schema_cache::SchemaCache::default(),
             )),
+            unit_status: Arc::new(units::UnitStatusCache::default()),
         });
         eprintln!(
             "web: config dir {} settings {:?}",

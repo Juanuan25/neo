@@ -1104,32 +1104,25 @@ window.servicesGrid = function servicesGrid() {
     var badges = document.querySelectorAll('[data-unit-summary]');
     var dots = document.querySelectorAll('[data-unit-summary-dot]');
     if (!root || (!badges.length && !dots.length)) return;
+    // Same summarizer as the services grid / sidebar dots (static/service_status.js).
     var ctrls = root.querySelectorAll('.unit-row .unit-controls');
-    var total = ctrls.length;
-    var known = 0, active = 0, failed = 0, busy = 0;
+    var entries = [];
     for (var i = 0; i < ctrls.length; i++) {
-      var st = ctrls[i].getAttribute('data-active-state');
-      if (!st) continue;
-      known++;
-      // Timer-backed oneshots idle between runs; only a failure counts against them.
-      var timer = ctrls[i].closest('.unit-row').hasAttribute('data-timer');
-      if (timer && st !== 'failed') { total--; known--; continue; }
-      if (st === 'active') active++;
-      else if (st === 'failed') failed++;
-      else if (st === 'activating' || st === 'deactivating' || st === 'reloading') busy++;
+      entries.push({
+        state: ctrls[i].getAttribute('data-active-state'),
+        timer: ctrls[i].closest('.unit-row').hasAttribute('data-timer'),
+      });
     }
-    var state, text;
-    if (known < total) { state = 'unknown'; text = 'checking…'; }
-    else if (total === 0 && !failed) { state = 'ok'; text = 'idle'; }
-    else if (failed) { state = 'failed'; text = failed === 1 ? '1 failed' : failed + ' failed'; }
-    else if (busy) { state = 'busy'; text = 'changing…'; }
-    else if (active === total) { state = 'ok'; text = 'running'; }
-    else if (active === 0) { state = 'down'; text = 'stopped'; }
-    else { state = 'partial'; text = active + '/' + total + ' running'; }
-    for (var d = 0; d < dots.length; d++) dots[d].setAttribute('data-state', state);
+    var summary = window.NeoUnitHealth
+      ? window.NeoUnitHealth.summarize(entries)
+      : { state: 'unknown', text: 'checking…' };
+    for (var d = 0; d < dots.length; d++) {
+      dots[d].setAttribute('data-state', summary.state);
+      dots[d].setAttribute('title', summary.text);
+    }
     for (var b = 0; b < badges.length; b++) {
       var t = badges[b].querySelector('[data-unit-summary-text]');
-      if (t) t.textContent = text;
+      if (t) t.textContent = summary.text;
     }
   }
 

@@ -7,9 +7,22 @@ use rocket_ws::{Channel, Message, WebSocket};
 use crate::commands::web::action_bar::action_bar_oob_fragment;
 use crate::commands::web::structs::AppConfig;
 use crate::commands::web::units::{
-    extract_unit_state_from_oob, is_pull_in_flight, unit_active_state_async,
+    extract_unit_state_from_oob, is_pull_in_flight, query_unit_states,
     unit_controls_oob_fragment_with_state, unit_name_valid,
 };
+
+/// ActiveState for every watched unit from ONE batched `systemctl show` (uncached:
+/// the pane wants ~500ms freshness). Sorted for stable push order.
+async fn watched_active_states(
+    watched: &std::collections::HashSet<String>,
+) -> Vec<(String, String)> {
+    let mut units: Vec<String> = watched.iter().cloned().collect();
+    units.sort();
+    let states = query_unit_states(&units).await;
+    let mut out: Vec<(String, String)> = states.into_iter().map(|(u, s)| (u, s.active)).collect();
+    out.sort();
+    out
+}
 
 /// Parse a client WS control message.
 /// Supported forms:
@@ -101,8 +114,9 @@ pub async fn ws_status(ws: WebSocket, config: &State<Arc<AppConfig>>) -> Channel
                                     }
                                     // Immediate snapshot for newly watched units so the pane
                                     // does not wait a full tick after open/reconnect.
-                                    for u in watched.iter().cloned().collect::<Vec<_>>() {
-                                        let active = unit_active_state_async(&u).await;
+                                    // One batched systemctl call for all watched units.
+                                    let states = watched_active_states(&watched).await;
+                                    for (u, active) in states {
                                         let pulling = is_pull_in_flight(&config, &u);
                                         let prev = last_state.get(&u);
                                         let prev_pull = last_pulling.get(&u).copied();
@@ -130,9 +144,10 @@ pub async fn ws_status(ws: WebSocket, config: &State<Arc<AppConfig>>) -> Channel
                         }
                     }
                     _ = tick.tick(), if !watched.is_empty() => {
-                        // Live poll only for units this browser pane registered.
-                        for u in watched.iter().cloned().collect::<Vec<_>>() {
-                            let active = unit_active_state_async(&u).await;
+                        // Live poll only for units this browser pane registered —
+                        // one batched systemctl call per tick, not one per unit.
+                        let states = watched_active_states(&watched).await;
+                        for (u, active) in states {
                             let pulling = is_pull_in_flight(&config, &u);
                             let changed =
                                 last_state.get(&u).map(|p| p.as_str()) != Some(active.as_str())

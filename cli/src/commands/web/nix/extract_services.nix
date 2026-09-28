@@ -21,15 +21,33 @@
     then builtins.attrNames (f.nixosConfigurations.${cfg}.config.neo.services or {})
     else [];
 
+  # A broken unit list on one service must not take down the whole grid.
+  safeList = v: let
+    r = builtins.tryEval (builtins.deepSeq v v);
+  in
+    if r.success && builtins.isList r.value
+    then r.value
+    else [];
+
   raw =
     if cfg != null
     then
       map (n: let
         svc = f.nixosConfigurations.${cfg}.config.neo.services.${n} or {};
         meta = svc.meta or {};
+        enabled = svc.enabled or false;
       in {
         name = n;
-        enabled = svc.enabled or false;
+        inherit enabled;
+        # Runtime units for the grid status dot (installed services only).
+        units =
+          if enabled
+          then safeList (svc.systemdUnits or [])
+          else [];
+        timers =
+          if enabled
+          then safeList (svc.systemdTimers or [])
+          else [];
         icon = meta.icon or null;
         rank = meta.rank or null;
         category =

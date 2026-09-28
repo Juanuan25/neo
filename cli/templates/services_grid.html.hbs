@@ -133,7 +133,15 @@
             <span class="text-xl leading-none opacity-50">⚙</span>
           {{/if}}
           {{#if enabled}}
-            <span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-success ring-2 ring-base-100" title="Installed"></span>
+            {{!-- Runtime health; painted by service_status.js from one batched
+                 POST /status/services for every dot on the page. --}}
+            <span class="neo-unit-dot neo-unit-dot--lg absolute -bottom-0.5 -right-0.5 ring-2 ring-base-100"
+                  data-service-status="{{name}}"
+                  data-units="{{#each units}}{{this}}{{#unless @last}} {{/unless}}{{/each}}"
+                  data-timers="{{#each timers}}{{this}}{{#unless @last}} {{/unless}}{{/each}}"
+                  role="img"
+                  aria-label="{{name}}: checking status"
+                  title="{{name}}: checking status"></span>
           {{/if}}
         </span>
         <span class="min-w-0 flex-1">

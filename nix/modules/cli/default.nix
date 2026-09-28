@@ -57,7 +57,7 @@
     );
 
   staticSrc = slice "neo-cli-static" (cliRoot + "/static") (_rel: true) (
-    _rel: base: base != "neo-ui.css"
+    _rel: base: base != "neo-ui.css" && !lib.hasSuffix ".test.js" base
   );
 
   neoUnwrapped = pkgs: let

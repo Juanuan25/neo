@@ -2,16 +2,18 @@ use std::sync::Arc;
 
 use rocket::response::content::RawHtml;
 use rocket::response::stream::{Event, EventStream};
+use rocket::serde::json::Json;
 use rocket::{get, post, State};
 use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
 use tokio::process::Command as AsyncCommand;
 
 use crate::commands::web::structs::AppConfig;
 use crate::commands::web::units::{
-    clear_appdata_btn_oob, clear_appdata_out_oob, is_safe_appdata_path, normalize_container_unit,
-    perform_unit_action, run_clear_appdata, run_container_pull, schedule_unit_refresh_burst,
-    try_begin_clear_appdata, try_begin_pull, unit_controls_oob_fragment, unit_name_valid,
-    update_out_oob, UnitAction,
+    clear_appdata_btn_oob, clear_appdata_out_oob, is_safe_appdata_path, map_services,
+    normalize_container_unit, perform_unit_action, run_clear_appdata, run_container_pull,
+    schedule_unit_refresh_burst, try_begin_clear_appdata, try_begin_pull,
+    unit_controls_oob_fragment, unit_name_valid, update_out_oob, ServiceStatusRequest,
+    ServiceStatusResponse, UnitAction,
 };
 use crate::commands::web::util::{escape_html, service_name_ok, sudo_cmd};
 
@@ -214,4 +216,20 @@ pub async fn sse_logs(unit: &str) -> EventStream![] {
             }
         }
     }
+}
+
+/// Status dots for every service card on the page in one round-trip.
+///
+/// The page posts `{services: {name: {units, timers}}}`; all units go into ONE
+/// batched `systemctl show` (via the few-second single-flight cache), and the result
+/// is grouped back per service. Never fails: without systemctl every unit is
+/// `unknown`, and the client renders grey dots.
+#[post("/status/services", data = "<body>")]
+pub async fn services_status(
+    config: &State<Arc<AppConfig>>,
+    body: Json<ServiceStatusRequest>,
+) -> Json<ServiceStatusResponse> {
+    let req = body.into_inner();
+    let states = config.unit_status.get(&req.all_units()).await;
+    Json(map_services(&req, &states))
 }

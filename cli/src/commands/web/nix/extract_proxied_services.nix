@@ -31,12 +31,23 @@
 
   proxiedNames = builtins.filter isProxied (builtins.attrNames services);
 
+  # A broken unit list on one service must not take down the whole sidebar.
+  safeList = v: let
+    r = builtins.tryEval (builtins.deepSeq v v);
+  in
+    if r.success && builtins.isList r.value
+    then r.value
+    else [];
+
   raw =
     map (n: let
       svc = services.${n};
       meta = svc.meta or {};
     in {
       name = n;
+      # Runtime units for the sidebar status dot.
+      units = safeList (svc.systemdUnits or []);
+      timers = safeList (svc.systemdTimers or []);
       subdomain = svc.subdomain or "";
       icon = meta.icon or null;
       rank = meta.rank or null;

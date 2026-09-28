@@ -39,6 +39,20 @@ pub fn docker_bin() -> String {
     resolve_env_bin(env.as_deref(), "/run/current-system/sw/bin/docker")
 }
 
+/// systemctl for read-only unit queries (`systemctl show`). neo-web's PATH is a
+/// closed list without systemd, so prefer an explicit env path, then the NixOS
+/// system profile, then a bare PATH lookup (dev machines).
+pub fn systemctl_bin() -> String {
+    let env = std::env::var("SYSTEMCTL_BINARY_PATH").ok();
+    let system = "/run/current-system/sw/bin/systemctl";
+    let fallback = if std::path::Path::new(system).exists() {
+        system
+    } else {
+        "systemctl"
+    };
+    resolve_env_bin(env.as_deref(), fallback)
+}
+
 fn resolve_env_bin(value: Option<&str>, fallback: &str) -> String {
     match value {
         Some(p) if !p.is_empty() => p.to_string(),

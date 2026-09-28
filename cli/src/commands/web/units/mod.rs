@@ -2,6 +2,7 @@
 mod clear_appdata;
 mod control;
 mod pull;
+mod status;
 
 pub use clear_appdata::{
     clear_appdata_btn_oob, clear_appdata_out_oob, end_clear_appdata, is_clear_appdata_in_flight,
@@ -16,3 +17,6 @@ pub use control::{
     update_out_oob, UnitAction,
 };
 pub use pull::run_container_pull;
+pub use status::{
+    map_services, query_unit_states, ServiceStatusRequest, ServiceStatusResponse, UnitStatusCache,
+};
