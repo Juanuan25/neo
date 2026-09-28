@@ -41,15 +41,3 @@ pub(crate) fn git_dirty(dir: &Path, pathspec: Option<&str>) -> bool {
     };
     is_dirty(true) || is_dirty(false)
 }
-
-pub(crate) fn worktree_summary(dir: &Path) -> String {
-    let mut text = String::new();
-    if let Ok(o) = git_output(dir, &["status", "--porcelain", "-b", "--short"]) {
-        text.push_str(&String::from_utf8_lossy(&o.stdout));
-    }
-    text.push('\n');
-    if let Ok(o) = git_output(dir, &["diff", "--stat", "--no-color"]) {
-        text.push_str(&String::from_utf8_lossy(&o.stdout));
-    }
-    text
-}

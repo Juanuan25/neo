@@ -478,7 +478,10 @@ window.versioningPage = function versioningPage() {
         })
         .then(function (html) {
           var body = document.getElementById('changes-body');
-          if (body) body.innerHTML = head + html;
+          if (!body) return;
+          body.innerHTML = head + html;
+          // Service links in the settings summary navigate via hx-get.
+          if (typeof htmx !== 'undefined' && htmx.process) htmx.process(body);
         })
         .catch(function (e) {
           var body = document.getElementById('changes-body');

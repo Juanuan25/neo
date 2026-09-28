@@ -11,6 +11,7 @@ use toml_edit::DocumentMut;
 
 mod action_bar;
 mod activation;
+mod diff;
 mod git;
 mod git_ops;
 mod helper_exec;

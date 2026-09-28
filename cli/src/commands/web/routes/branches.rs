@@ -5,15 +5,16 @@ use rocket::{get, post, State};
 use rocket_dyn_templates::Template;
 
 use crate::commands::web::activation;
+use crate::commands::web::diff::{render_changes, RenderOptions};
 use crate::commands::web::git_ops::{
-    activation_branch_for_rev, activation_graph, diff_settings, enabled_services_at_rev,
-    is_worktree_dirty, list_activation_branches,
+    activation_branch_for_rev, activation_graph, collect_changes, enabled_services_at_rev,
+    is_worktree_dirty, list_activation_branches, resolve_rev, settings_semantic, DiffRange,
 };
 use crate::commands::web::settings::save::refresh_after_settings_change;
 use crate::commands::web::structs::{AppConfig, BranchesContext};
 use crate::commands::web::trigger::{trigger_activation, trigger_generation_switch};
 use crate::commands::web::util::{
-    branch_ok, config_dir, diff_html, escape_html, generation_ok, rev_ok, sudo_cmd,
+    branch_ok, config_dir, escape_html, generation_ok, rev_ok, sudo_cmd,
 };
 use crate::utils::{git_cmd, list_system_generations_with_sudo, GenerationMode};
 
@@ -62,7 +63,7 @@ pub fn versioning_services(config: &State<Arc<AppConfig>>, rev: &str) -> RawJson
     }
 }
 
-/// Unified `settings.toml` diff between two revs.
+/// Changes between two revs: file tree, semantic settings summary and full diffs.
 #[get("/versioning/diff?<a>&<b>")]
 pub fn versioning_diff(config: &State<Arc<AppConfig>>, a: &str, b: &str) -> RawHtml<String> {
     if !rev_ok(a) || !rev_ok(b) {
@@ -70,20 +71,35 @@ pub fn versioning_diff(config: &State<Arc<AppConfig>>, a: &str, b: &str) -> RawH
     }
     let dir = config_dir(&config.settings_path);
     let dir_str = dir.to_str().unwrap_or(".");
-    match diff_settings(dir_str, a, b) {
-        Ok(diff) => {
-            if diff.trim().is_empty() {
-                RawHtml(
-                    r#"<div class="text-sm text-base-content/60 py-6 text-center">No differences in settings.toml</div>"#
-                        .to_string(),
-                )
-            } else {
-                RawHtml(diff_html(&diff))
-            }
+    let revs = resolve_rev(dir_str, a).and_then(|ra| Ok((ra, resolve_rev(dir_str, b)?)));
+    let (ra, rb) = match revs {
+        Ok(r) => r,
+        Err(e) => {
+            return RawHtml(format!(
+                r#"<div class="text-error text-sm">{}</div>"#,
+                escape_html(&e)
+            ))
+        }
+    };
+    let range = DiffRange::Revs { from: &ra, to: &rb };
+    match collect_changes(&dir, range) {
+        Ok(set) if set.is_empty() => RawHtml(
+            r#"<div class="text-sm text-base-content/60 py-6 text-center">No differences between these versions</div>"#
+                .to_string(),
+        ),
+        Ok(set) => {
+            let semantic = settings_semantic(&dir, &set, range);
+            RawHtml(render_changes(
+                &set,
+                &RenderOptions {
+                    subtitle: None,
+                    semantic: semantic.as_ref(),
+                },
+            ))
         }
         Err(e) => RawHtml(format!(
             r#"<div class="text-error text-sm">{}</div>"#,
-            escape_html(&e)
+            escape_html(&format!("{e:#}"))
         )),
     }
 }

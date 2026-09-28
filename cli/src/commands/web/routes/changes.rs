@@ -4,51 +4,52 @@ use rocket::response::content::RawHtml;
 use rocket::{get, post, State};
 
 use crate::commands::web::action_bar::{action_bar_dynamic_element, broadcast_action_bar};
-use crate::commands::web::git_ops::{dirty_state, get_settings_toml_diff};
+use crate::commands::web::diff::{render_changes, RenderOptions};
+use crate::commands::web::git_ops::{collect_changes, settings_semantic, DiffRange};
 use crate::commands::web::settings::discard_pending_changes;
 use crate::commands::web::structs::AppConfig;
 use crate::commands::web::trigger::trigger_activation;
-use crate::commands::web::util::{
-    alert_html, changes_actions_row, diff_html, escape_html, AlertKind,
-};
+use crate::commands::web::util::{alert_html, changes_actions_row, config_dir, AlertKind};
 
 #[get("/changes/action-bar")]
 pub fn changes_action_bar(config: &State<Arc<AppConfig>>) -> RawHtml<String> {
     RawHtml(action_bar_dynamic_element(&config, false))
 }
 
-fn summary_heading(title: &str, sub: &str) -> String {
-    format!(
-        r#"<div class="flex items-center gap-2 mb-3"><span class="neo-unit-dot" data-state="partial" aria-hidden="true"></span><div><div class="text-sm font-semibold">{title}</div><div class="text-xs text-base-content/60">{sub}</div></div></div>"#
-    )
-}
+const ALL_APPLIED: &str = r#"<div class="flex flex-col items-center text-center gap-2 py-8"><span class="w-10 h-10 rounded-full bg-success/15 text-success flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><div class="font-semibold text-sm">Everything is applied</div><div class="text-xs text-base-content/60">No pending changes in the working tree.</div></div>"#;
 
+/// Pending-changes preview: file tree, semantic settings summary and full diffs of
+/// every changed file (tracked and untracked) against the last activation (`HEAD`).
 #[get("/changes/summary")]
 pub fn changes_summary(config: &State<Arc<AppConfig>>) -> RawHtml<String> {
-    let d = dirty_state(&config);
-    let body = if d.settings_dirty {
-        let diff = get_settings_toml_diff(&config);
-        format!(
-            "{}{}{}",
-            summary_heading(
-                "settings.toml",
-                "Saved but not yet activated. Activate to apply, or discard to return to the last applied state."
-            ),
-            diff_html(&diff),
-            changes_actions_row()
-        )
-    } else if d.worktree_dirty {
-        let esc = escape_html(&d.summary);
-        format!(
-            "{}<pre class=\"text-xs overflow-auto max-h-[55vh] rounded-box border border-base-300 bg-base-200/60 p-3 whitespace-pre\">{}</pre>{}",
-            summary_heading("Working tree", "Other files changed since the last activation."),
-            esc,
-            changes_actions_row()
-        )
-    } else {
-        r#"<div class="flex flex-col items-center text-center gap-2 py-8"><span class="w-10 h-10 rounded-full bg-success/15 text-success flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><div class="font-semibold text-sm">Everything is applied</div><div class="text-xs text-base-content/60">No pending changes in the working tree.</div></div>"#.to_string()
+    let dir = config_dir(&config.settings_path);
+    let set = match collect_changes(&dir, DiffRange::Worktree) {
+        Ok(set) => set,
+        Err(e) => {
+            return RawHtml(format!(
+                "{}{}",
+                alert_html(
+                    AlertKind::Error,
+                    &format!("Could not read pending changes: {e:#}")
+                ),
+                changes_actions_row()
+            ))
+        }
     };
-    RawHtml(body)
+    if set.is_empty() {
+        return RawHtml(ALL_APPLIED.to_string());
+    }
+    let semantic = settings_semantic(&dir, &set, DiffRange::Worktree);
+    let html = render_changes(
+        &set,
+        &RenderOptions {
+            subtitle: Some(
+                "Saved but not yet activated. Activate to apply, or discard to return to the last applied state.",
+            ),
+            semantic: semantic.as_ref(),
+        },
+    );
+    RawHtml(format!("{html}{}", changes_actions_row()))
 }
 
 #[post("/changes/revert")]

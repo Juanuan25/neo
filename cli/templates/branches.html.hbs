@@ -202,7 +202,7 @@
                           <span class="badge badge-soft badge-error badge-sm font-mono" x-text="'− ' + s" title="Disabled in this version"></span>
                         </template>
                         <span x-show="!added(e).length && !removed(e).length" class="text-xs text-base-content/60">No services added or removed — only settings changed.</span>
-                        <button type="button" class="btn btn-xs btn-ghost text-primary" @click="showDiff(e.prevId, e.id, 'What changed')">Show settings diff</button>
+                        <button type="button" class="btn btn-xs btn-ghost text-primary" @click="showDiff(e.prevId, e.id, 'What changed')">Show changes</button>
                       </div>
                     </template>
                   </div>

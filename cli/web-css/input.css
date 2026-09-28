@@ -402,18 +402,563 @@ html.neo-bars-fused #options-sticky-save {
   display: none;
 }
 
-/* Colored unified diff (changes dialog). */
-.neo-diff {
-  font-family: var(--font-mono, ui-monospace, monospace);
+
+/* ------------------------------------------------------------------------
+   Changes preview (pending changes / version compare).
+   Markup: src/commands/web/diff/render.rs · behavior: static/diff_view.js.
+   Colors come from daisyUI theme tokens, so light and dark themes both work;
+   status is never color-only (letters A/M/D/R/U, +/− signs).
+   ------------------------------------------------------------------------ */
+.neo-changes {
+  --neo-c-add: var(--color-success);
+  --neo-c-del: var(--color-error);
+  --neo-c-mod: var(--color-warning);
+  --neo-c-ren: var(--color-info);
+  --neo-c-muted: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+  --neo-c-line: color-mix(in oklab, var(--color-base-content) 12%, transparent);
+  --neo-mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  font-size: 0.8125rem;
+}
+/* The shared dialog is max-w-4xl; give diffs more room. */
+.modal-box:has(.neo-changes) {
+  max-width: min(90rem, calc(100vw - 1.5rem));
+}
+
+.neo-changes summary {
+  list-style: none;
+  cursor: pointer;
+}
+.neo-changes summary::-webkit-details-marker {
+  display: none;
+}
+.neo-chev {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex-shrink: 0;
+  opacity: 0.55;
+  transition: transform 0.12s ease;
+}
+.neo-changes details[open] > summary > .neo-chev {
+  transform: rotate(90deg);
+}
+
+/* Status palette per [data-status]. */
+.neo-changes [data-status="added"] { --neo-st-c: var(--neo-c-add); }
+.neo-changes [data-status="modified"] { --neo-st-c: var(--neo-c-mod); }
+.neo-changes [data-status="deleted"] { --neo-st-c: var(--neo-c-del); }
+.neo-changes [data-status="renamed"] { --neo-st-c: var(--neo-c-ren); }
+
+.neo-st {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 0.3rem;
+  font-family: var(--neo-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: color-mix(in oklab, var(--neo-st-c) 70%, var(--color-base-content));
+  background-color: color-mix(in oklab, var(--neo-st-c) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--neo-st-c) 40%, transparent);
+}
+
+.neo-counts {
+  display: inline-flex;
+  gap: 0.35rem;
+  font-family: var(--neo-mono);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.neo-counts-lg {
+  font-size: 0.8rem;
+}
+.neo-add-n { color: color-mix(in oklab, var(--neo-c-add) 75%, var(--color-base-content)); }
+.neo-del-n { color: color-mix(in oklab, var(--neo-c-del) 75%, var(--color-base-content)); }
+.neo-bin { color: var(--neo-c-muted); }
+
+.neo-statbar {
+  display: inline-flex;
+  gap: 1px;
+  vertical-align: middle;
+}
+.neo-statbar i {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 1px;
+  background-color: var(--neo-c-line);
+}
+.neo-statbar i[data-k="add"] { background-color: var(--neo-c-add); }
+.neo-statbar i[data-k="del"] { background-color: var(--neo-c-del); }
+
+/* Header */
+.neo-changes-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+.neo-changes-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+.neo-changes-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+.neo-changes-sub {
+  flex-basis: 100%;
+  margin: 0;
   font-size: 0.75rem;
-  line-height: 1.35rem;
+  color: var(--neo-c-muted);
 }
-.neo-diff > span {
-  display: block;
-  padding: 0 0.75rem;
-  white-space: pre;
+
+/* Semantic settings summary */
+.neo-sem {
+  border: 1px solid var(--color-base-300);
+  border-radius: var(--radius-box, 0.75rem);
+  background-color: var(--color-base-100);
+  padding: 0.75rem 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
-.neo-diff .add { background-color: color-mix(in oklab, var(--color-success) 14%, transparent); }
-.neo-diff .del { background-color: color-mix(in oklab, var(--color-error) 14%, transparent); }
-.neo-diff .hunk { color: var(--color-info); opacity: 0.8; }
-.neo-diff .meta { opacity: 0.45; }
+.neo-sem-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--neo-c-muted);
+}
+.neo-sem-meta {
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  margin-left: 0.35rem;
+}
+.neo-sem-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.neo-sem-item + .neo-sem-item {
+  border-top: 1px solid var(--neo-c-line);
+  padding-top: 0.4rem;
+}
+.neo-sem-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.neo-sem-name {
+  font-weight: 600;
+  font-family: var(--neo-mono);
+  font-size: 0.8rem;
+}
+a.neo-sem-name {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+a.neo-sem-name:hover,
+a.neo-sem-name:focus-visible {
+  text-decoration: underline;
+}
+.neo-sem-badge {
+  --neo-b-c: var(--neo-c-mod);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border-radius: 9999px;
+  padding: 0 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.15rem;
+  color: color-mix(in oklab, var(--neo-b-c) 70%, var(--color-base-content));
+  background-color: color-mix(in oklab, var(--neo-b-c) 16%, transparent);
+}
+.neo-sem-badge[data-kind="enabled"] { --neo-b-c: var(--neo-c-add); }
+.neo-sem-badge[data-kind="disabled"] { --neo-b-c: var(--neo-c-del); }
+.neo-sem-table {
+  margin-top: 0.3rem;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+.neo-sem-table th,
+.neo-sem-table td {
+  padding: 0.15rem 0.4rem 0.15rem 0;
+  vertical-align: top;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.neo-sem-table th {
+  font-weight: 500;
+  width: 30%;
+  color: color-mix(in oklab, var(--color-base-content) 80%, transparent);
+}
+.neo-sem-table code {
+  font-family: var(--neo-mono);
+  border-radius: 0.25rem;
+  padding: 0 0.25rem;
+}
+.neo-sem-old code {
+  background-color: color-mix(in oklab, var(--neo-c-del) 12%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklab, var(--neo-c-del) 60%, transparent);
+}
+.neo-sem-new code {
+  background-color: color-mix(in oklab, var(--neo-c-add) 14%, transparent);
+}
+.neo-sem-arrow {
+  width: 1.25rem;
+  color: var(--neo-c-muted);
+}
+.neo-sem-unset {
+  font-style: italic;
+  color: var(--neo-c-muted);
+}
+.neo-sem-secret {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--neo-c-muted);
+}
+.neo-lock {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+.neo-sem-empty,
+.neo-sem-error {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--neo-c-muted);
+}
+.neo-sem-error {
+  color: var(--color-error);
+}
+
+/* Tree + files layout */
+.neo-changes-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.875rem;
+  align-items: start;
+}
+.neo-tree {
+  max-height: 14rem;
+  overflow: auto;
+  border: 1px solid var(--color-base-300);
+  border-radius: var(--radius-box, 0.75rem);
+  background-color: var(--color-base-100);
+  padding: 0.5rem 0.35rem;
+  font-size: 0.78rem;
+}
+@media (min-width: 1024px) {
+  .neo-changes-grid {
+    grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+  }
+  .neo-tree {
+    position: sticky;
+    top: 0;
+    max-height: calc(85dvh - 7rem);
+  }
+}
+.neo-tree-title {
+  padding: 0 0.4rem 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--neo-c-muted);
+}
+.neo-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.neo-tree-list .neo-tree-list {
+  margin-left: 0.8rem;
+  padding-left: 0.25rem;
+  border-left: 1px solid var(--neo-c-line);
+}
+.neo-tree-dir > summary,
+.neo-tree-file {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.18rem 0.4rem;
+  border-radius: 0.375rem;
+  text-align: left;
+}
+.neo-tree-dir > summary:hover,
+.neo-tree-file:hover {
+  background-color: color-mix(in oklab, var(--color-base-content) 7%, transparent);
+}
+.neo-tree-file {
+  cursor: pointer;
+}
+.neo-tree-file.is-active {
+  background-color: color-mix(in oklab, var(--color-primary) 14%, transparent);
+}
+.neo-tree-file:focus-visible,
+.neo-tree-dir > summary:focus-visible,
+.neo-file-head:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+.neo-tree-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+.neo-tree-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.neo-tree-dir > summary .neo-tree-name {
+  color: color-mix(in oklab, var(--color-base-content) 75%, transparent);
+}
+
+/* File sections */
+.neo-files {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.neo-file {
+  border: 1px solid var(--color-base-300);
+  border-left: 3px solid color-mix(in oklab, var(--neo-st-c) 70%, transparent);
+  border-radius: var(--radius-box, 0.75rem);
+  background-color: var(--color-base-100);
+  overflow: clip;
+  scroll-margin-top: 0.25rem;
+}
+.neo-file.is-flash {
+  animation: neo-diff-flash 1.2s ease-out;
+}
+@keyframes neo-diff-flash {
+  0% { box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 55%, transparent); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .neo-file.is-flash { animation: none; }
+  .neo-chev { transition: none; }
+}
+.neo-file-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.65rem;
+  background-color: var(--color-base-200);
+  border-bottom: 1px solid var(--color-base-300);
+}
+.neo-file:not([open]) > .neo-file-head {
+  border-bottom: 0;
+}
+.neo-file-path {
+  min-width: 0;
+  font-family: var(--neo-mono);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+.neo-file-dir {
+  color: var(--neo-c-muted);
+}
+.neo-file-base {
+  font-weight: 600;
+}
+.neo-file-old {
+  font-family: var(--neo-mono);
+  font-size: 0.75rem;
+  color: var(--neo-c-muted);
+  overflow-wrap: anywhere;
+}
+.neo-file-tag {
+  font-size: 0.65rem;
+  border-radius: 9999px;
+  padding: 0 0.4rem;
+  line-height: 1.1rem;
+  color: var(--neo-c-muted);
+  background-color: var(--neo-c-line);
+}
+.neo-file-stats {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.neo-file-placeholder {
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--neo-c-muted);
+}
+.neo-file-note-row {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.72rem;
+  color: var(--neo-c-muted);
+  border-top: 1px solid var(--neo-c-line);
+}
+
+/* Diff tables */
+.neo-diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: var(--neo-mono);
+  font-size: 0.72rem;
+  line-height: 1.2rem;
+}
+.neo-col-ln { width: 3.1rem; }
+.neo-col-sign { width: 1.1rem; }
+.neo-diff-table td {
+  padding: 0;
+  vertical-align: top;
+}
+.neo-diff-table td.neo-ln {
+  padding: 0 0.45rem 0 0.25rem;
+  text-align: right;
+  color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
+  user-select: none;
+  background-color: color-mix(in oklab, var(--color-base-content) 3%, transparent);
+}
+.neo-ln::before {
+  content: attr(data-ln);
+}
+.neo-sign {
+  text-align: center;
+  user-select: none;
+  color: var(--neo-c-muted);
+}
+.neo-diff-table td.neo-code {
+  padding-right: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.neo-split-table td.neo-ln:nth-child(4) {
+  border-left: 1px solid var(--neo-c-line);
+}
+.neo-diff-table tr[data-k="add"] > td,
+.neo-diff-table td[data-k="add"] {
+  background-color: color-mix(in oklab, var(--neo-c-add) 11%, transparent);
+}
+.neo-diff-table tr[data-k="add"] > td.neo-ln,
+.neo-diff-table td.neo-ln[data-k="add"] {
+  background-color: color-mix(in oklab, var(--neo-c-add) 20%, transparent);
+}
+.neo-diff-table tr[data-k="del"] > td,
+.neo-diff-table td[data-k="del"] {
+  background-color: color-mix(in oklab, var(--neo-c-del) 11%, transparent);
+}
+.neo-diff-table tr[data-k="del"] > td.neo-ln,
+.neo-diff-table td.neo-ln[data-k="del"] {
+  background-color: color-mix(in oklab, var(--neo-c-del) 20%, transparent);
+}
+.neo-diff-table tr[data-k="add"] .neo-sign,
+.neo-diff-table td.neo-sign[data-k="add"] {
+  color: color-mix(in oklab, var(--neo-c-add) 80%, var(--color-base-content));
+}
+.neo-diff-table tr[data-k="del"] .neo-sign,
+.neo-diff-table td.neo-sign[data-k="del"] {
+  color: color-mix(in oklab, var(--neo-c-del) 80%, var(--color-base-content));
+}
+.neo-diff-table td[data-k="empty"] {
+  background-color: color-mix(in oklab, var(--color-base-content) 4%, transparent);
+}
+.neo-dw {
+  border-radius: 0.2rem;
+}
+[data-k="add"] .neo-dw {
+  background-color: color-mix(in oklab, var(--neo-c-add) 38%, transparent);
+}
+[data-k="del"] .neo-dw {
+  background-color: color-mix(in oklab, var(--neo-c-del) 38%, transparent);
+}
+.neo-nonl {
+  margin-left: 0.4rem;
+  font-size: 0.62rem;
+  font-style: italic;
+  color: var(--neo-c-muted);
+  user-select: none;
+}
+.neo-diff-table .neo-hunk td {
+  padding: 0.2rem 0.75rem;
+  color: color-mix(in oklab, var(--neo-c-ren) 70%, var(--color-base-content));
+  background-color: color-mix(in oklab, var(--neo-c-ren) 8%, transparent);
+  border-top: 1px solid var(--neo-c-line);
+  border-bottom: 1px solid var(--neo-c-line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.neo-hunk-gap {
+  margin-right: 0.6rem;
+  color: var(--neo-c-muted);
+}
+.neo-hunk-sec {
+  color: var(--neo-c-muted);
+}
+.neo-fold-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.15rem 0.75rem;
+  font-family: var(--font-sans, inherit);
+  font-size: 0.7rem;
+  text-align: left;
+  color: color-mix(in oklab, var(--neo-c-ren) 70%, var(--color-base-content));
+  background-color: color-mix(in oklab, var(--neo-c-ren) 6%, transparent);
+  cursor: pointer;
+}
+.neo-fold-btn:hover,
+.neo-fold-btn:focus-visible {
+  background-color: color-mix(in oklab, var(--neo-c-ren) 14%, transparent);
+}
+
+/* Unified / split toggle (split needs width; phones always get unified). */
+.neo-split-table {
+  display: none;
+}
+:root[data-neo-diff-view="split"] .neo-changes .neo-split-table {
+  display: table;
+}
+:root[data-neo-diff-view="split"] .neo-changes .neo-unified-table {
+  display: none;
+}
+@media (max-width: 767px) {
+  .neo-view-toggle {
+    display: none;
+  }
+  :root[data-neo-diff-view="split"] .neo-changes .neo-split-table {
+    display: none;
+  }
+  :root[data-neo-diff-view="split"] .neo-changes .neo-unified-table {
+    display: table;
+  }
+}

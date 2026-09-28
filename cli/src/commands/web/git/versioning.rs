@@ -6,9 +6,7 @@ use toml_edit::DocumentMut;
 
 use crate::utils::{get_current_branch, parse_generation_from_message};
 
-use super::super::types::AppConfig;
 use super::super::types::{BranchInfo, GraphCommit, ServicesAtRev, VersioningGraph};
-use super::super::util::config_dir;
 use super::plumbing::{git_output, git_stdout};
 
 const GRAPH_LIMIT: usize = 80;
@@ -38,21 +36,6 @@ pub fn list_activation_branches(config_path: &str) -> Vec<BranchInfo> {
             is_current: name == cur,
         })
         .collect()
-}
-
-pub fn get_settings_toml_diff(cfg: &AppConfig) -> String {
-    let dir = config_dir(&cfg.settings_path);
-    match git_output(&dir, &["diff", "--no-color", "HEAD", "--", "settings.toml"]) {
-        Ok(o) => {
-            let mut t = String::from_utf8_lossy(&o.stdout).into_owned();
-            let e = String::from_utf8_lossy(&o.stderr);
-            if !e.is_empty() {
-                t.push_str(&e);
-            }
-            t
-        }
-        Err(e) => format!("git diff error: {}", e),
-    }
 }
 
 /// Resolve a safe-looking rev to a full commit id via shell git.
@@ -191,27 +174,6 @@ pub fn enabled_services_at_rev(config_path: &str, rev: &str) -> Result<ServicesA
         enabled,
         disabled,
     })
-}
-
-/// Unified diff of `settings.toml` between two revs (`git diff a b -- settings.toml`).
-pub fn diff_settings(config_path: &str, a: &str, b: &str) -> Result<String, String> {
-    let _ = resolve_rev(config_path, a)?;
-    let _ = resolve_rev(config_path, b)?;
-    let o = git_output(
-        Path::new(config_path),
-        &["diff", "--no-color", a, b, "--", "settings.toml"],
-    )?;
-    // diff exits 1 when differences exist — still success for us
-    let code = o.status.code().unwrap_or(1);
-    if code != 0 && code != 1 {
-        let err = String::from_utf8_lossy(&o.stderr);
-        return Err(if err.trim().is_empty() {
-            format!("git diff failed (exit {})", code)
-        } else {
-            err.trim().to_string()
-        });
-    }
-    Ok(String::from_utf8_lossy(&o.stdout).into_owned())
 }
 
 /// Prefer an activation branch name that points at `rev` (full or short sha).
