@@ -3,7 +3,10 @@ qemu_monitor_port := "4444"
 qemu_monitor := qemu_monitor_host + ":" + qemu_monitor_port
 # admin (not root): neo disables PermitRootLogin when authorizedKeys are set
 ssh_opts := "-i tools/development_ed25519 -p 2222 -o StrictHostKeyChecking=no admin@localhost"
+# Ext4 dev VM. The disko/ZFS VM must never open or replace this image.
 disk_image := "nixos.qcow2"
+# Persistent qcow2 chain for the disko VM (base/ + overlay). See vm-configuration.nix.
+disko_disk_dir := "nixos-disko"
 
 build:
   #!/usr/bin/env bash
@@ -22,19 +25,22 @@ build:
   nix run '.#neo' build
 
 # Shut down the VM via QEMU monitor, falling back to pkill.
-# Waits until the qcow2 disk is fully released before returning.
+# Waits until QEMU has exited so both nixos.qcow2 and nixos-disko/ are released.
+# Does not delete either image.
 shutdown:
   #!/usr/bin/env bash
   set -euo pipefail
-  # Send quit via QEMU monitor (ignoring exit code since the connection
-  # drops when QEMU terminates). Falls back to pkill if monitor is not up.
-  echo "quit" | nc -w 2 {{qemu_monitor_host}} {{qemu_monitor_port}} >/dev/null 2>&1 \
-    || pkill -f "qemu-system.*-name nixos" 2>/dev/null \
-    || { echo "No running VM found"; exit 0; }
-  # Wait for the disk image to be released (up to 30s)
-  echo -n "Waiting for disk release"
+  # [q] so this script does not match itself.
+  qemu_pat='[q]emu-system.*-name nixos'
+  if ! pgrep -f "$qemu_pat" >/dev/null 2>&1; then
+    echo "No running VM found"
+    exit 0
+  fi
+  # The monitor connection drops when QEMU terminates.
+  echo "quit" | nc -w 2 {{qemu_monitor_host}} {{qemu_monitor_port}} >/dev/null 2>&1 || true
+  echo -n "Waiting for VM to exit"
   for i in $(seq 1 30); do
-    if qemu-img info "{{disk_image}}" >/dev/null 2>&1; then
+    if ! pgrep -f "$qemu_pat" >/dev/null 2>&1; then
       echo " done"
       exit 0
     fi
@@ -42,7 +48,7 @@ shutdown:
     sleep 1
   done
   echo " timed out - force killing"
-  pkill -9 -f "qemu-system.*-name nixos" 2>/dev/null || true
+  pkill -9 -f "$qemu_pat" 2>/dev/null || true
   sleep 2
 
 launch: shutdown build
@@ -54,6 +60,7 @@ launch: shutdown build
   else
     QEMU_NET_OPTS="hostfwd=tcp::2222-:22" \
     QEMU_OPTS="-smp 4 -m 8G -monitor tcp:{{qemu_monitor}},server,nowait" \
+    DISKO_VM_STATE_DIR="$PWD/{{disko_disk_dir}}" \
     ./build/result/bin/disko-vm &
   fi
 
@@ -128,8 +135,13 @@ status:
     echo "not running"
   fi
   echo ""
-  echo "== Disk Image =="
-  qemu-img info "{{disk_image}}" 2>&1 | head -5
+  echo "== Disk images =="
+  for img in "{{disk_image}}" "{{disko_disk_dir}}"/*.qcow2; do
+    if [ -f "$img" ]; then
+      echo "-- $img"
+      qemu-img info "$img" 2>&1 | head -6
+    fi
+  done
 
 exec COMMAND:
   ssh {{ssh_opts}} "{{COMMAND}}"

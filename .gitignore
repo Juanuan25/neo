@@ -2,6 +2,7 @@ result
 homeserver.tar
 DATA
 nixos.qcow2*
+nixos-disko/
 build/
 nixos-efi-vars.fd
 cli/target
