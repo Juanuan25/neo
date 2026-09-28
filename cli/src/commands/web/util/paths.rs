@@ -24,6 +24,16 @@ pub fn neo_bin() -> String {
 
 /// Docker CLI for inspect/pull. neo-web's systemd PATH does not include docker,
 /// so a bare `"docker"` lookup fails with ENOENT (`os error 2`).
+/// Handlebars root. Nix sets this; `cargo run` uses `cli/templates`.
+pub fn template_dir() -> String {
+    std::env::var("TEMPLATE_DIR").unwrap_or_else(|_| "templates".to_string())
+}
+
+/// Static asset root. Nix sets this; `cargo run` uses `cli/static`.
+pub fn static_dir() -> String {
+    std::env::var("STATIC_DIR").unwrap_or_else(|_| "static".to_string())
+}
+
 pub fn docker_bin() -> String {
     let env = std::env::var("DOCKER_BINARY_PATH").ok();
     resolve_env_bin(env.as_deref(), "/run/current-system/sw/bin/docker")
@@ -38,7 +48,7 @@ fn resolve_env_bin(value: Option<&str>, fallback: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{docker_bin, resolve_env_bin};
+    use super::{docker_bin, resolve_env_bin, static_dir, template_dir};
 
     #[test]
     fn docker_bin_default_is_nixos_system_path_not_bare_name() {
@@ -61,6 +71,26 @@ mod tests {
             ),
             "/nix/store/abc/bin/docker"
         );
+    }
+
+    #[test]
+    fn asset_dirs_default_to_repo_relative_paths() {
+        assert!(
+            std::env::var("TEMPLATE_DIR")
+                .ok()
+                .filter(|p| !p.is_empty())
+                .is_none(),
+            "TEMPLATE_DIR is set; unset it to assert the default"
+        );
+        assert!(
+            std::env::var("STATIC_DIR")
+                .ok()
+                .filter(|p| !p.is_empty())
+                .is_none(),
+            "STATIC_DIR is set; unset it to assert the default"
+        );
+        assert_eq!(template_dir(), "templates");
+        assert_eq!(static_dir(), "static");
     }
 
     #[test]

@@ -1,18 +1,92 @@
 # Neo CLI package (crane) and systemPackages for the homeserver.
+#
+# `self` is one store path for the whole flake. Interpolating it, or a
+# subdirectory of it, makes a derivation depend on every tracked file.
+# Each input below is a `cleanSourceWith` copy hashed only from the files
+# its filter keeps. Templates, static files, and CSS are runtime wrapper
+# inputs, so they do not rebuild the crate.
 {
   lib,
   self,
   inputs,
   ...
 }: let
-  packageWrapper = pkgs: cfg: neoWebCss: let
-    craneLib = inputs.crane.mkLib pkgs;
-    src = lib.cleanSourceWith {
-      src = self + "/cli";
-      filter = path: type:
-        (craneLib.filterCargoSources path type)
-        || (lib.hasSuffix ".nix" path);
+  # `keepFile rel base` decides files. `keepDir rel` decides child directories
+  # (the root itself is always kept). Rejecting a directory skips everything under it.
+  slice = name: root: keepDir: keepFile:
+    lib.cleanSourceWith {
+      inherit name;
+      src = root;
+      filter = path: type: let
+        rootStr = toString root;
+        rel = lib.removePrefix "${rootStr}/" (toString path);
+        base = baseNameOf path;
+      in
+        if toString path == rootStr
+        then true
+        else if type == "directory"
+        then keepDir rel
+        else keepFile rel base;
     };
+
+  cliRoot = self + "/cli";
+
+  # What rustc compiles: manifest, lockfile, Rust sources, and the Nix
+  # extractors pulled in with include_str!.
+  cargoSrc =
+    slice "neo-cli-cargo" cliRoot (
+      rel: rel == "src" || lib.hasPrefix "src/" rel
+    ) (
+      rel: base:
+        rel
+        == "Cargo.toml"
+        || rel == "Cargo.lock"
+        || (
+          lib.hasPrefix "src/" rel
+          && (lib.hasSuffix ".rs" base || lib.hasSuffix ".nix" base)
+        )
+    );
+
+  templateDir =
+    slice "neo-cli-templates" (cliRoot + "/templates") (
+      rel: baseNameOf rel != "test"
+    ) (
+      _rel: base:
+        lib.hasSuffix ".hbs" base
+        || (lib.hasSuffix ".js" base && !lib.hasSuffix ".test.js" base)
+    );
+
+  staticSrc = slice "neo-cli-static" (cliRoot + "/static") (_rel: true) (
+    _rel: base: base != "neo-ui.css"
+  );
+
+  neoUnwrapped = pkgs: let
+    craneLib = inputs.crane.mkLib pkgs;
+    common = {
+      pname = "neo-unwrapped";
+      version = "0.1.0";
+      src = cargoSrc;
+      nativeBuildInputs = [
+        pkgs.pkg-config
+        pkgs.git
+      ];
+      buildInputs = [pkgs.openssl];
+      doCheck = false;
+    };
+    deps = craneLib.buildDepsOnly common;
+  in
+    craneLib.buildPackage (
+      common
+      // {
+        cargoArtifacts = deps;
+        meta = {
+          description = "Neo CLI - Rust implementation for homeserver bootstrap";
+          mainProgram = "neo";
+        };
+      }
+    );
+
+  packageWrapper = pkgs: cfg: neoWebCss: let
     neoCli = cfg."neo-cli" or {};
     localCfg = neoCli.local or {};
     serverCfg = neoCli.server or {};
@@ -38,42 +112,30 @@
         else "false"
       }
     '';
-    template_dir = "${self}/cli/templates";
-    static_dir = pkgs.runCommand "neo-static" {} ''
+    staticDir = pkgs.runCommand "neo-static" {} ''
       mkdir -p $out
-      cp -a ${self}/cli/static/. $out/
+      cp -a ${staticSrc}/. $out/
       chmod -R u+w $out
       rm -f $out/neo-ui.css
       cp ${neoWebCss}/neo-ui.css $out/neo-ui.css
     '';
-    common = {
-      pname = "neo";
-      version = "0.1.0";
-      inherit src;
-      nativeBuildInputs = [
-        pkgs.pkg-config
-        pkgs.git
-      ];
-      buildInputs = [pkgs.openssl];
-      doCheck = false;
-    };
-    deps = craneLib.buildDepsOnly common;
+    unwrapped = neoUnwrapped pkgs;
   in
-    craneLib.buildPackage (
-      common
-      // {
-        cargoArtifacts = deps;
-        env.DEFAULT_SETTINGS_TOML = builtins.readFile defaults;
-        env.NIX_BINARY_PATH = "${pkgs.nix}/bin/nix";
-        env.SUDO_BINARY_PATH = "${pkgs.sudo}/bin/sudo";
-        env.TEMPLATE_DIR = template_dir;
-        env.STATIC_DIR = static_dir;
-        meta = {
-          description = "Neo CLI - Rust implementation for homeserver bootstrap";
-          mainProgram = "neo";
-        };
-      }
-    );
+    pkgs.runCommand "neo-0.1.0" {
+      nativeBuildInputs = [pkgs.makeWrapper];
+      passthru = {inherit unwrapped cargoSrc;};
+      meta = {
+        description = "Neo CLI - Rust implementation for homeserver bootstrap";
+        mainProgram = "neo";
+      };
+    } ''
+      mkdir -p $out/bin
+      makeWrapper ${unwrapped}/bin/neo $out/bin/neo \
+        --inherit-argv0 \
+        --set TEMPLATE_DIR ${templateDir} \
+        --set STATIC_DIR ${staticDir} \
+        --set DEFAULT_SETTINGS_PATH ${defaults}
+    '';
   cfgPackage = self.nixosConfigurations.homeserver.config.neo;
 in {
   perSystem = {

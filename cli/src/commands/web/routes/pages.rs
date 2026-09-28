@@ -21,12 +21,10 @@ pub enum ShellOrPartial {
 }
 
 /// Web app manifest at a root URL with the correct MIME type (Seerr-style).
-/// Loaded from STATIC_DIR at runtime — crane's cargo source filter omits `static/`, so
-/// `include_str!` would fail in the nix build. FileServer also lacks a `.webmanifest` MIME map.
+/// Loaded from STATIC_DIR at runtime. FileServer also lacks a `.webmanifest` MIME map.
 #[get("/site.webmanifest")]
 pub fn site_webmanifest() -> Option<(ContentType, String)> {
-    let static_dir = option_env!("STATIC_DIR").unwrap_or("static");
-    let path = PathBuf::from(static_dir).join("manifest.json");
+    let path = PathBuf::from(crate::commands::web::util::static_dir()).join("manifest.json");
     let body = std::fs::read_to_string(path).ok()?;
     Some((ContentType::new("application", "manifest+json"), body))
 }

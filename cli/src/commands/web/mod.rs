@@ -48,10 +48,8 @@ pub fn web(
         .unwrap_or_else(|_| config_path.to_string());
 
     let rt = Runtime::new().context("create runtime")?;
-    let template_dir = option_env!("TEMPLATE_DIR")
-        .unwrap_or("templates")
-        .to_string();
-    let static_dir = option_env!("STATIC_DIR").unwrap_or("static").to_string();
+    let template_dir = util::template_dir();
+    let static_dir = util::static_dir();
     let nix_cmd_for_eval = nix_cmd.to_string();
     rt.block_on(async move {
         let busy = Arc::new(AtomicBool::new(true));

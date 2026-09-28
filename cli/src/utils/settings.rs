@@ -6,7 +6,7 @@ use toml_edit::DocumentMut;
 
 /// Load baked default settings (if any) and overlay the user file at `path`.
 pub fn load_or_default_settings(path: &PathBuf, _profile: &str) -> Result<DocumentMut> {
-    let default_str = option_env!("DEFAULT_SETTINGS_TOML").unwrap_or("");
+    let default_str = baked_default_settings()?;
     let mut doc = if !default_str.is_empty() {
         default_str.parse().context("parse default TOML")?
     } else {
@@ -18,6 +18,19 @@ pub fn load_or_default_settings(path: &PathBuf, _profile: &str) -> Result<Docume
         merge_into(&mut doc, &user_doc);
     }
     Ok(doc)
+}
+
+/// Nix installs point `DEFAULT_SETTINGS_PATH` at a store file so changing
+/// those defaults does not rebuild the crate. `option_env!` remains the
+/// fallback for a binary compiled with the toml inlined.
+fn baked_default_settings() -> Result<String> {
+    match std::env::var("DEFAULT_SETTINGS_PATH") {
+        Ok(path) if !path.is_empty() => std::fs::read_to_string(&path)
+            .with_context(|| format!("read baked default settings from {path}")),
+        _ => Ok(option_env!("DEFAULT_SETTINGS_TOML")
+            .unwrap_or("")
+            .to_string()),
+    }
 }
 
 fn merge_into(base: &mut DocumentMut, overlay: &DocumentMut) {
