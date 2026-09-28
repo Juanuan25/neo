@@ -159,11 +159,13 @@
         boot.enableContainers = true;
         virtualisation.containers.enable = true;
 
-        networking.firewall.allowedTCPPorts = [
-          80
-          443
-          2223
-        ] ++ tcpForwardPorts;
+        networking.firewall.allowedTCPPorts =
+          [
+            80
+            443
+            2223
+          ]
+          ++ tcpForwardPorts;
         systemd.services = {
           streamproxy-local80 = streamproxyForwarding 80;
           streamproxy-local443 = streamproxyForwarding 443;
@@ -200,11 +202,13 @@
           localAddress = streamproxyIp;
 
           config = {pkgs, ...}: {
-            networking.firewall.allowedTCPPorts = [
-              80
-              443
-              2223
-            ] ++ tcpForwardPorts;
+            networking.firewall.allowedTCPPorts =
+              [
+                80
+                443
+                2223
+              ]
+              ++ tcpForwardPorts;
 
             services.nginx = {
               enable = true;
