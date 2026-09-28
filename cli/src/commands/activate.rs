@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 
 use crate::utils::{
     format_command, get_current_branch, git_cmd, has_staged_changes, record_generation_in_commit,
-    resolve_suffix, run_nix, OperationLog,
+    resolve_suffix, run_nix, run_write_flake, OperationLog,
 };
 
 pub fn activate(
@@ -25,9 +25,7 @@ pub fn activate(
     op.write_state("in_progress", "starting", None, None);
     let _tee = op.capture_stdio();
 
-    op.step("write-flake", || {
-        run_nix(config_path, nix_cmd, &["run", ".#write-flake"])
-    })?;
+    op.step("write-flake", || run_write_flake(config_path, nix_cmd))?;
     op.write_state("in_progress", "write-flake-done", None, None);
 
     op.step("toplevel-build", || {

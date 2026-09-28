@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use toml_edit::DocumentMut;
 
-use crate::utils::{git_cmd, has_staged_changes, neo_cli_get, run_nix};
+use crate::utils::{git_cmd, has_staged_changes, neo_cli_get, resolve_template, run_nix};
 
 pub fn init(
     config_path: &str,
@@ -20,8 +20,7 @@ pub fn init(
         let repo_url = neo_cli_get(config, profile, "repoUrl").filter(|s| !s.is_empty());
         let bootstrap_method =
             neo_cli_get(config, profile, "bootstrapMethod").unwrap_or("template");
-        let template =
-            neo_cli_get(config, profile, "template").unwrap_or("github:madebydamo/neo#homeserver");
+        let template = resolve_template(config, profile);
         let git_user_name = neo_cli_get(config, profile, "gitUserName").unwrap_or("Neo Bootstrap");
         let git_user_email = neo_cli_get(config, profile, "gitUserEmail").unwrap_or("neo@local");
         let default_branch = neo_cli_get(config, profile, "defaultBranch").unwrap_or("master");
@@ -65,10 +64,9 @@ pub fn init(
         if let (Some(url), "clone") = (repo_url, bootstrap_method) {
             git_cmd(config_path, &["clone", url, "."])?;
         } else {
-            let template = neo_cli_get(config, profile, "template")
-                .unwrap_or("github:madebydamo/neo#homeserver");
+            let template = resolve_template(config, profile);
 
-            run_nix(config_path, nix_cmd, &["flake", "init", "-t", template])?;
+            run_nix(config_path, nix_cmd, &["flake", "init", "-t", &template])?;
             git_cmd(config_path, &["init"])?;
 
             if let Some(url) = repo_url {

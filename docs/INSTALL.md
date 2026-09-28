@@ -112,14 +112,17 @@ mkdir -p ~/neo-homeserver && cd ~/neo-homeserver
 
 cat > settings.toml << 'EOF'
 [neo-cli]
-template = "github:madebydamo/neo#homeserver"
 bootstrapMethod = "template"
 
-# Optional: local defaults to ./build, server defaults to /var/neo/DATA/AppData/configuration
+# neoInput defaults to github:madebydamo/neo on both profiles.
+# Put a laptop checkout on local only; the server profile stays on GitHub.
 # [neo-cli.local]
 # configPath = "./build"
+# neoInput = "git+file:/path/to/neo"
+# template = "/path/to/neo#homeserver"
 # [neo-cli.server]
 # configPath = "/var/neo/DATA/AppData/configuration"
+# neoInput = "github:madebydamo/neo"
 
 [services.system-updater]
 enabled = true
@@ -251,7 +254,8 @@ authorizedKeys = [
 ]
 
 [neo-cli]
-template = "github:madebydamo/neo#homeserver"
+bootstrapMethod = "template"
+# local and server neoInput default to github:madebydamo/neo
 # local.configPath defaults to ./build; server.configPath defaults to appdata/configuration
 
 [services.system-updater]

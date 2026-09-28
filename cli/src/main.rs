@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use std::env;
 use std::path::PathBuf;
@@ -24,6 +24,7 @@ use crate::commands::{
 };
 use crate::utils::{
     execute_command, load_or_default_settings, resolve_config_path, resolve_profile,
+    set_profile_str,
 };
 
 #[derive(Parser)]
@@ -145,6 +146,8 @@ fn run(cli: Cli) -> Result<()> {
     // On a full install, run as homeserver so configPath ownership and git identity match.
     if etc_settings.exists() && env::var("USER").unwrap_or_default() != "homeserver" {
         let sudo_bin = cli.sudo_path.as_deref().unwrap_or("sudo");
+        // The child prints its own error. A failed `neo init` still exits
+        // through this sudo, so do not describe that as a user-switch failure.
         execute_command(
             Command::new(sudo_bin)
                 .arg("-u")
@@ -153,29 +156,21 @@ fn run(cli: Cli) -> Result<()> {
                     "--preserve-env=NEO_NEO_INPUT,NEO_TEMPLATE,NEO_REMOTE_URL,NIX_BINARY_PATH,SUDO_BINARY_PATH,NEO_ACTIVATION_SUFFIX,NEO_UPDATE_SUFFIX,NEO_SECTION,NEO_PROFILE,TEMPLATE_DIR,STATIC_DIR,DEFAULT_SETTINGS_PATH",
                 )
                 .args(env::args()),
-        )
-        .context(
-            "neo must run as the homeserver user on a full install. SSH as homeserver@<host> (your authorizedKeys), or set core.hashedLinuxPassword so sudo can switch from admin. There is no default Linux password.",
         )?;
         return Ok(());
     }
 
     let mut doc = load_or_default_settings(&settings_path, &profile)?;
-    // Merge CLI overrides into shared neo-cli
+    // Overrides apply to the active profile so a server command does not
+    // inherit a laptop path written on the shared table.
     if let Some(v) = cli.neo_input {
-        if let Some(table) = doc.get_mut("neo-cli").and_then(|t| t.as_table_mut()) {
-            table.insert("neoInput", toml_edit::value(v));
-        }
+        set_profile_str(&mut doc, &profile, "neoInput", &v);
     }
     if let Some(v) = cli.template {
-        if let Some(table) = doc.get_mut("neo-cli").and_then(|t| t.as_table_mut()) {
-            table.insert("template", toml_edit::value(v));
-        }
+        set_profile_str(&mut doc, &profile, "template", &v);
     }
     if let Some(v) = cli.remote_url {
-        if let Some(table) = doc.get_mut("neo-cli").and_then(|t| t.as_table_mut()) {
-            table.insert("repoUrl", toml_edit::value(v));
-        }
+        set_profile_str(&mut doc, &profile, "repoUrl", &v);
     }
 
     let config_path = resolve_config_path(&doc, &profile);

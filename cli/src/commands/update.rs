@@ -3,7 +3,9 @@ use std::fs;
 use std::path::Path;
 use toml_edit::DocumentMut;
 
-use crate::utils::{neo_cli_get, resolve_suffix, run_nix, OperationLog};
+use crate::utils::{
+    neo_cli_get, resolve_suffix, resolve_template, run_nix, run_write_flake, OperationLog,
+};
 
 pub fn update(
     config_path: &str,
@@ -47,11 +49,10 @@ pub fn update(
             fs::rename(&flake_path, &flake_backup)
                 .context("backup flake.nix for template refresh init")?;
         }
-        let template =
-            neo_cli_get(config, profile, "template").unwrap_or("github:madebydamo/neo#homeserver");
+        let template = resolve_template(config, profile);
 
         let init_result = op.step("flake init", || {
-            run_nix(config_path, nix_cmd, &["flake", "init", "-t", template])
+            run_nix(config_path, nix_cmd, &["flake", "init", "-t", &template])
         });
         if had_flake && flake_backup.exists() {
             if let Err(rerr) = fs::rename(&flake_backup, &flake_path) {
@@ -66,9 +67,7 @@ pub fn update(
         init_result?;
     }
 
-    op.step("write-flake", || {
-        run_nix(config_path, nix_cmd, &["run", ".#write-flake"])
-    })?;
+    op.step("write-flake", || run_write_flake(config_path, nix_cmd))?;
     op.step("flake update", || {
         run_nix(config_path, nix_cmd, &["flake", "update"])
     })?;

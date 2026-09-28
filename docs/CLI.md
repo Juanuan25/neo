@@ -18,13 +18,13 @@ neo --help
 | `--profile local \| server` | Which path profile to use. Default: `server` if `/etc/neo/settings.toml` exists, else `local`. Env: `NEO_PROFILE`. |
 | `--section …` | Alias for `--profile` (`local` or `server`). Env: `NEO_SECTION`. |
 | `--dry-run` | Print actions without applying. |
-| `--neo-input` / `NEO_NEO_INPUT` | Override Neo input URL. |
-| `--template` / `NEO_TEMPLATE` | Override template. |
+| `--neo-input` / `NEO_NEO_INPUT` | Override this profile's Neo input URL. |
+| `--template` / `NEO_TEMPLATE` | Override this profile's template. |
 | `--remote-url` / `NEO_REMOTE_URL` | Override config repo URL. |
 | `--nix-path` / `NIX_BINARY_PATH` | Nix binary. |
 | `--sudo-path` / `SUDO_BINARY_PATH` | Sudo binary. |
 
-On a full install (`/etc/neo/settings.toml` present), commands re-exec as the `homeserver` user when needed and default to the **server** profile (`neo-cli.server.configPath`). Laptop / `nix run` defaults to the **local** profile (`neo-cli.local.configPath`, default `./build`). Shared keys (template, neoInput, git identity, …) live under `[neo-cli]`.
+On a full install (`/etc/neo/settings.toml` present), commands re-exec as the `homeserver` user when needed and default to the **server** profile (`neo-cli.server.configPath`, `neo-cli.server.neoInput`). Laptop / `nix run` defaults to the **local** profile (`neo-cli.local.configPath`, default `./build`). `neoInput` and `template` are per profile. The server profile defaults to `github:madebydamo/neo` (`#homeserver` for the template). A laptop checkout (`git+file:` or a directory template) belongs under `[neo-cli.local]`. Git identity and other shared keys stay under `[neo-cli]`.
 
 SSH to a finished host as **`homeserver@…`** for `neo` (or **`admin@…`** if you set `core.hashedLinuxPassword`). Same keys on both; no default password. See [INSTALL.md — first login](INSTALL.md#first-login). `nix run github:madebydamo/neo#neo` is currently **`x86_64-linux` only** (Mac / other laptops: [INSTALL.md](INSTALL.md#when-the-laptop-cannot-build-mac-live-usb-or-wrong-architecture)).
 

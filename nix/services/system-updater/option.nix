@@ -39,7 +39,7 @@
                 Periodically runs neo update + activate so system packages and Neo modules stay current.
                 When enabled, a systemd timer runs scheduled upgrades (with optional nix garbage collection).
                 The configuration repository is created by neo-bootstrap on the neo web service, which stays enabled when this timer is off.
-                CLI path/template settings live under neo-cli (updates use the server profile for configPath). This option only controls whether automatic system updates run.
+                CLI path and neo input settings live under neo-cli. Updates use the server profile (configPath and neoInput). This option only controls whether automatic system updates run.
               '';
             }
             // lib.neo.mkSkillOptions {};

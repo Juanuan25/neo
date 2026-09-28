@@ -14,10 +14,10 @@ build:
   echo $(pwd)
   if [ ! -f ./settings.toml ]; then
     PWD=$(pwd)
-    CONFIG_PATH="${PWD}/build"
-    NEO_INPUT="git+file:${PWD}"
-    printf '[neo-cli]\nconfigPath = "%s"\nneoInput = "%s"\ntemplate = "%s#homeserver"\n\n[services.system-updater]\nenabled = false\n' \
-      "$CONFIG_PATH" "$NEO_INPUT" "$NEO_INPUT" > settings.toml
+    # local follows this checkout. server.neoInput stays the default
+    # github:madebydamo/neo so a guest init does not use this path.
+    printf '[neo-cli]\nbootstrapMethod = "template"\n\n[neo-cli.local]\nconfigPath = "%s/build"\nneoInput = "git+file:%s"\ntemplate = "%s#homeserver"\n\n[services.system-updater]\nenabled = false\n' \
+      "$PWD" "$PWD" "$PWD" > settings.toml
     git add settings.toml
   fi
   nix run '.#neo' nuke

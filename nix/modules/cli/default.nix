@@ -103,8 +103,12 @@
       rebuildBranchFormat = "${neoCli.rebuildBranchFormat or "%Y%m%d-%H%M%S"}"
       [neo-cli.local]
       configPath = "${localCfg.configPath or "./build"}"
+      neoInput = "${localCfg.neoInput or "github:madebydamo/neo"}"
+      template = "${localCfg.template or ""}"
       [neo-cli.server]
       configPath = "${serverCfg.configPath or defaultServerPath}"
+      neoInput = "${serverCfg.neoInput or "github:madebydamo/neo"}"
+      template = "${serverCfg.template or ""}"
       [disko]
       enabled = ${
         if cfg.disko.enabled or false

@@ -18,6 +18,18 @@
           fail=1
         fi
       done
+      if ! grep -q 'localCli.neoInput' "$homeserver"; then
+        echo "FAIL $homeserver must read neo-cli.local.neoInput" >&2
+        fail=1
+      fi
+      if ! grep -q 'serverCli.neoInput' "$homeserver"; then
+        echo "FAIL $homeserver must read neo-cli.server.neoInput" >&2
+        fail=1
+      fi
+      if ! grep -q 'github:madebydamo/neo' "$homeserver"; then
+        echo "FAIL $homeserver must default the server neo input to github:madebydamo/neo" >&2
+        fail=1
+      fi
       for f in "$homeserverFlake" "$pluginFlake"; do
         if ! grep -qE 'flake-file\.url = "github:[^"]+/flake-file"' "$f"; then
           echo "FAIL $f must keep a generated flake-file.url so flake init can load flake-file" >&2

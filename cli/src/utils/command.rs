@@ -101,6 +101,20 @@ pub fn run_nix(config_path: &str, nix_cmd: &str, args: &[&str]) -> Result<()> {
     )
 }
 
+/// `nix run --impure .#write-flake`.
+///
+/// The homeserver template decides the neo flake input with `builtins.pathExists`
+/// on the laptop checkout. Pure eval hides paths outside the config repo, so a
+/// pure write-flake leaves `neo.url` at `github:madebydamo/neo`. `--impure` is a
+/// flag of `nix run` and is rejected before the subcommand.
+pub fn write_flake_args() -> &'static [&'static str] {
+    &["run", "--impure", ".#write-flake"]
+}
+
+pub fn run_write_flake(config_path: &str, nix_cmd: &str) -> Result<()> {
+    run_nix(config_path, nix_cmd, write_flake_args())
+}
+
 pub fn git_cmd(config_path: &str, args: &[&str]) -> Result<()> {
     execute_command(Command::new("git").current_dir(config_path).args(args))
 }
@@ -147,5 +161,16 @@ pub fn get_current_branch(config_path: &str) -> Result<String> {
             .trim()
             .to_string();
         Ok(if n.is_empty() { "HEAD".to_string() } else { n })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_flake_args;
+
+    #[test]
+    fn write_flake_runs_impure_so_path_exists_can_see_the_checkout() {
+        // `nix run --impure .#write-flake`. `--impure` before `run` is rejected.
+        assert_eq!(write_flake_args(), ["run", "--impure", ".#write-flake"]);
     }
 }
