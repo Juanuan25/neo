@@ -27,11 +27,11 @@ fn progress_button(
     id: &str,
     btn_class: &str,
 ) -> String {
+    let spinner = r#"<span class="loading loading-spinner loading-xs"></span>"#;
     let id_ok = activation_id_ok(id) || repair_id_ok(id);
     if !id_ok {
         return format!(
-            r#"<button class="btn {} btn-xs animate-pulse">{} — view</button>"#,
-            btn_class, kind_label
+            r#"<button class="btn btn-sm btn-soft {btn_class} gap-1.5" title="{title} in progress">{spinner}<span class="hidden sm:inline">{kind_label}</span></button>"#,
         );
     }
     let esc = escape_html(id);
@@ -44,17 +44,11 @@ fn progress_button(
     let ts = escape_html(ts);
     // Title + fine timestamp; monitor response also OOBs #changes-modal-title.
     format!(
-        "<button class=\"btn {btn_class} btn-xs animate-pulse\" onclick=\"var m=document.getElementById('changes-modal');var t=m.querySelector('#changes-modal-title')||m.querySelector('h3');t.innerHTML='{title} <span class=\\'font-normal text-sm opacity-50\\'>{ts}</span>';m.showModal();htmx.ajax('GET','{path_prefix}/{esc}',{{target:'#changes-body',swap:'innerHTML'}})\">{kind_label} — view</button>",
-        btn_class = btn_class,
-        title = title,
-        ts = ts,
-        path_prefix = path_prefix,
-        esc = esc,
-        kind_label = kind_label,
+        "<button class=\"btn btn-sm btn-soft {btn_class} gap-1.5\" title=\"{title} in progress — view output\" onclick=\"var m=document.getElementById('changes-modal');var t=m.querySelector('#changes-modal-title')||m.querySelector('h3');t.innerHTML='{title} <span class=\\'font-normal text-sm opacity-50\\'>{ts}</span>';m.showModal();htmx.ajax('GET','{path_prefix}/{esc}',{{target:'#changes-body',swap:'innerHTML'}})\">{spinner}<span class=\"hidden sm:inline\">{kind_label}</span></button>",
     )
 }
 
-/// Inner HTML of `#action-bar-dynamic` (pending / reset only).
+/// Inner HTML of `#action-bar-dynamic` (status pill + reset).
 /// Eval busy is exposed as `data-eval-busy` on the wrapper so the client can fold it
 /// into the single navbar spinner (`#nav-busy`) with page-load busy.
 /// Uses a single dirty_state pass for pending + reset.
@@ -62,29 +56,29 @@ fn render_action_bar_dynamic_inner(config: &AppConfig) -> String {
     let d = dirty_state(config);
     let pending = if let Some(id) = activation::find_recent_in_progress_activation() {
         progress_button(
-            "Activation",
+            "Activating…",
             "Activation",
             "/activation/monitor",
             &id,
             "btn-warning",
         )
     } else if let Some(id) = activation::find_recent_in_progress_update() {
-        progress_button("Update", "Update", "/update/monitor", &id, "btn-info")
+        progress_button("Updating…", "Update", "/update/monitor", &id, "btn-info")
     } else if let Some(id) = nix_repair::find_recent_in_progress_repair() {
         progress_button(
-            "Store repair",
+            "Repairing store…",
             "Nix store repair",
             "/nix/repair/monitor",
             &id,
             "btn-warning",
         )
     } else if d.worktree_dirty || d.settings_dirty {
-        "<button class=\"btn btn-warning btn-xs\" onclick=\"var m=document.getElementById('changes-modal');m.querySelector('h3').textContent='Pending changes';m.showModal();htmx.ajax('GET','/changes/summary',{target:'#changes-body',swap:'innerHTML'})\">Changes — review</button>".to_string()
+        r#"<button class="btn btn-sm btn-soft btn-warning gap-1.5" title="Saved changes not yet activated — review" onclick="var m=document.getElementById('changes-modal');m.querySelector('h3').textContent='Pending changes';m.showModal();htmx.ajax('GET','/changes/summary',{target:'#changes-body',swap:'innerHTML'})"><span class="neo-unit-dot" data-state="partial" aria-hidden="true"></span>Changes<span class="hidden lg:inline">pending</span></button>"#.to_string()
     } else {
-        "<span class=\"text-[10px] opacity-40\">clean</span>".to_string()
+        r#"<span class="hidden sm:inline-flex items-center gap-1.5 px-2 text-xs text-base-content/55" title="Configuration matches the last activation"><span class="neo-unit-dot" data-state="ok" aria-hidden="true"></span>Up to date</span>"#.to_string()
     };
     let reset = if d.settings_dirty || d.worktree_dirty {
-        r##"<button hx-post="/actions/reset" hx-target="#changes-body" hx-swap="innerHTML" hx-confirm="Reset settings from last applied (/etc/neo)?" hx-on::after-request="var m=document.getElementById('changes-modal');if(m){m.querySelector('h3').textContent='Reset';m.showModal();}" class="btn btn-xs btn-ghost">↩<span class="hidden sm:inline ml-1">Reset</span></button>"##.to_string()
+        r##"<button hx-post="/actions/reset" hx-target="#changes-body" hx-swap="innerHTML" hx-confirm="Reset settings from last applied (/etc/neo)?" hx-on::after-request="var m=document.getElementById('changes-modal');if(m){m.querySelector('h3').textContent='Reset';m.showModal();}" class="btn btn-sm btn-ghost btn-square" title="Discard pending changes (reset to last applied)" aria-label="Reset to last applied"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/></svg></button>"##.to_string()
     } else {
         String::new()
     };
@@ -96,7 +90,7 @@ pub fn action_bar_dynamic_element(config: &AppConfig, oob: bool) -> String {
     let busy = config.eval_busy.load(Ordering::Relaxed);
     let oob_attr = if oob { r#" hx-swap-oob="true""# } else { "" };
     format!(
-        r#"<div id="action-bar-dynamic" class="flex items-center gap-2" data-eval-busy="{}"{oob_attr}>{}</div>"#,
+        r#"<div id="action-bar-dynamic" class="flex items-center gap-1" data-eval-busy="{}"{oob_attr}>{}</div>"#,
         if busy { "true" } else { "false" },
         render_action_bar_dynamic_inner(config),
     )

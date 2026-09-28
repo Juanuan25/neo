@@ -1,198 +1,180 @@
-<div id="services-grid"
-     class="space-y-2.5 sm:space-y-4"
-     x-data="{
-       status: 'all',
-       category: 'all',
-       plugin: 'all',
-       matches(enabled, cat, pluginUrls) {
-         const urls = pluginUrls || [];
-         const st = this.status === 'all'
-           || (this.status === 'installed' && enabled)
-           || (this.status === 'available' && !enabled);
-         const catOk = this.category === 'all' || this.category === cat;
-         const plugOk = this.plugin === 'all'
-           || (this.plugin === 'core' && urls.length === 0)
-           || urls.indexOf(this.plugin) !== -1;
-         return st && catOk && plugOk;
-       },
-       sectionVisible(cat, hasEn, hasDis, packed) {
-         if (this.category !== 'all' && this.category !== cat) return false;
-         const tokens = (packed || '').split('|').filter(Boolean);
-         if (this.plugin === 'core' && tokens.indexOf('core') === -1) return false;
-         if (this.plugin !== 'all' && this.plugin !== 'core' && tokens.indexOf(this.plugin) === -1) return false;
-         if (this.status === 'installed') return hasEn;
-         if (this.status === 'available') return hasDis;
-         return true;
-       },
-        anyVisible() {
-          const els = this.$root.querySelectorAll('[data-plugin-urls]');
-          return Array.from(els).some((el) => this.matches(
-            el.dataset.enabled === 'true',
-            el.dataset.cat,
-            (el.dataset.pluginUrls || '').split('|').filter(Boolean)
-          ));
-        }
-     }">
+{{!-- Services tab: search + status / category / source filters over category
+     sections of service cards. Filter state lives in servicesGrid()
+     (configuration.js); cards carry data-* for matching. --}}
+<div id="services-grid" class="space-y-5 sm:space-y-6" x-data="servicesGrid()" @keydown.window="onKey($event)">
   {{#if error}}
-    <div class="alert alert-error text-xs flex flex-col gap-2">
-      <span class="whitespace-pre-wrap">{{error}}</span>
-      <div class="flex flex-wrap gap-2">
-        {{#if can_store_repair}}
-          <button type="button"
-                  class="btn btn-xs btn-warning"
-                  hx-post="/nix/repair"
-                  hx-target="#changes-body"
-                  hx-swap="innerHTML"
-                  hx-confirm="Run sudo nix-store --verify --repair?"
-                  hx-on::after-request="var m=document.getElementById('changes-modal');if(m){m.querySelector('h3').textContent='Nix store repair';m.showModal();}">
-            Repair Nix store
-          </button>
-        {{/if}}
-        {{#if can_flake_update}}
-          <button type="button"
-                  class="btn btn-xs btn-info"
-                  hx-post="/flake/update"
-                  hx-target="#changes-body"
-                  hx-swap="innerHTML"
-                  hx-confirm="Run flake update + template refresh?"
-                  hx-on::after-request="var m=document.getElementById('changes-modal');if(m){m.querySelector('h3').textContent='Update';m.showModal();}">
-            Update flake inputs
-          </button>
-        {{/if}}
-        <button class="btn btn-xs btn-ghost" onclick="location.reload()">Reload</button>
+    <div role="alert" class="alert alert-error alert-soft text-sm items-start">
+      <div class="min-w-0 flex-1">
+        <div class="text-xs whitespace-pre-wrap break-words font-mono">{{error}}</div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          {{#if can_store_repair}}
+            <button type="button"
+                    class="btn btn-sm btn-warning"
+                    hx-post="/nix/repair"
+                    hx-target="#changes-body"
+                    hx-swap="innerHTML"
+                    hx-confirm="Run sudo nix-store --verify --repair?"
+                    hx-on::after-request="var m=document.getElementById('changes-modal');if(m){m.querySelector('h3').textContent='Nix store repair';m.showModal();}">
+              Repair Nix store
+            </button>
+          {{/if}}
+          {{#if can_flake_update}}
+            <button type="button"
+                    class="btn btn-sm btn-info"
+                    hx-post="/flake/update"
+                    hx-target="#changes-body"
+                    hx-swap="innerHTML"
+                    hx-confirm="Run flake update + template refresh?"
+                    hx-on::after-request="var m=document.getElementById('changes-modal');if(m){m.querySelector('h3').textContent='Update';m.showModal();}">
+              Update flake inputs
+            </button>
+          {{/if}}
+          <button class="btn btn-sm btn-ghost" onclick="location.reload()">Reload</button>
+        </div>
       </div>
     </div>
   {{/if}}
 
   {{#if groups}}
-  {{!-- Filters: install status + category --}}
-  <div class="flex flex-wrap items-center gap-1.5 sm:gap-2 py-0.5 sm:py-1.5">
-    <div class="join">
-      <button type="button"
-              class="btn btn-xs join-item"
-              :class="status === 'all' ? 'btn-primary' : 'btn-ghost'"
-              @click="status = 'all'">All</button>
-      <button type="button"
-              class="btn btn-xs join-item"
-              :class="status === 'installed' ? 'btn-primary' : 'btn-ghost'"
-              @click="status = 'installed'">Installed</button>
-      <button type="button"
-              class="btn btn-xs join-item"
-              :class="status === 'available' ? 'btn-primary' : 'btn-ghost'"
-              @click="status = 'available'">Available</button>
+  {{!-- Toolbar --}}
+  <div class="space-y-3">
+    <div class="flex flex-col sm:flex-row sm:items-end gap-3">
+      <div class="min-w-0 flex-1">
+        <h2 class="text-xl sm:text-2xl font-semibold tracking-tight">Services</h2>
+        <p class="text-sm text-base-content/60 mt-0.5" x-cloak>
+          <span x-text="counts.installed"></span> installed · <span x-text="counts.available"></span> available
+        </p>
+      </div>
+      <label class="input input-sm sm:input-md w-full sm:w-80 neo-search">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 opacity-50 shrink-0" aria-hidden="true"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.45 4.39l3.08 3.08a.75.75 0 11-1.06 1.06l-3.08-3.08A7 7 0 012 9z" clip-rule="evenodd"/></svg>
+        <input type="search"
+               x-ref="search"
+               x-model="q"
+               @keydown.escape.prevent="q = ''; $el.blur()"
+               class="grow"
+               placeholder="Search services"
+               aria-label="Search services"
+               autocomplete="off">
+        <kbd class="kbd kbd-sm neo-kbd-hint hidden sm:inline-flex" x-show="!q">/</kbd>
+      </label>
     </div>
-    <select class="select select-xs min-w-[9rem]"
-            x-model="category"
-            aria-label="Filter by category">
-      <option value="all">All categories</option>
-      {{#each categories}}
-      <option value="{{this}}">{{this}}</option>
-      {{/each}}
-    </select>
-    {{#if plugin_filters}}
-    <select class="select select-xs min-w-[9rem]"
-            x-model="plugin"
-            aria-label="Filter by plugin">
-      <option value="all">All sources</option>
-      <option value="core">Core</option>
-      {{#each plugin_filters}}
-      <option value="{{url}}">{{display}}</option>
-      {{/each}}
-    </select>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <div role="tablist" class="tabs tabs-box tabs-sm flex-nowrap" aria-label="Install status">
+        <button type="button" role="tab" class="tab gap-1.5" :class="{ 'tab-active': status === 'all' }" @click="status = 'all'">
+          All <span class="text-[11px] opacity-50 tabular-nums" x-text="counts.all"></span>
+        </button>
+        <button type="button" role="tab" class="tab gap-1.5" :class="{ 'tab-active': status === 'installed' }" @click="status = 'installed'">
+          Installed <span class="text-[11px] opacity-50 tabular-nums" x-text="counts.installed"></span>
+        </button>
+        <button type="button" role="tab" class="tab gap-1.5" :class="{ 'tab-active': status === 'available' }" @click="status = 'available'">
+          Available <span class="text-[11px] opacity-50 tabular-nums" x-text="counts.available"></span>
+        </button>
+      </div>
+      {{#if plugin_filters}}
+        <select class="select select-sm w-auto min-w-[9rem] sm:ml-auto"
+                x-model="plugin"
+                aria-label="Filter by source">
+          <option value="all">All sources</option>
+          <option value="core">Core</option>
+          {{#each plugin_filters}}
+          <option value="{{url}}">{{display}}</option>
+          {{/each}}
+        </select>
+      {{/if}}
+    </div>
+
+    {{#if (gt (len categories) 1)}}
+      <div class="flex gap-1.5 neo-scroll-x -mx-1 px-1 pb-0.5" aria-label="Filter by category">
+        <button type="button"
+                class="btn btn-xs sm:btn-sm rounded-full shrink-0 font-normal"
+                :class="category === 'all' ? 'btn-neutral' : 'btn-ghost bg-base-100 border-base-300'"
+                @click="category = 'all'">All categories</button>
+        {{#each categories}}
+          <button type="button"
+                  class="btn btn-xs sm:btn-sm rounded-full shrink-0 font-normal"
+                  data-cat="{{this}}"
+                  :class="category === $el.dataset.cat ? 'btn-neutral' : 'btn-ghost bg-base-100 border-base-300'"
+                  @click="category = category === $el.dataset.cat ? 'all' : $el.dataset.cat">{{this}}</button>
+        {{/each}}
+      </div>
     {{/if}}
   </div>
 
   {{#each groups}}
-  <section class="space-y-1 sm:space-y-1.5"
-           data-cat="{{name}}"
-           data-has-en="{{#if hasEnabled}}true{{else}}false{{/if}}"
-           data-has-dis="{{#if hasDisabled}}true{{else}}false{{/if}}"
-           data-plugin-tokens="{{#each services}}{{#if plugins}}{{#each plugins}}{{url}}|{{/each}}{{else}}core|{{/if}}{{/each}}"
-           x-show="sectionVisible($el.dataset.cat, $el.dataset.hasEn === 'true', $el.dataset.hasDis === 'true', $el.dataset.pluginTokens)">
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 px-0.5">{{name}}</h3>
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1.5 sm:gap-2">
+  <section class="space-y-2.5" data-cat="{{name}}" x-show="sectionVisible($el)">
+    <div class="flex items-center gap-2.5 px-0.5">
+      <h3 class="text-xs font-semibold uppercase tracking-wider text-base-content/55">{{name}}</h3>
+      <span class="text-xs text-base-content/40 tabular-nums" x-text="visibleCount($el.closest('section'))"></span>
+      <div class="flex-1 h-px bg-base-content/10" aria-hidden="true"></div>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
       {{#each services}}
-      <div class="relative"
-           data-enabled="{{#if enabled}}true{{else}}false{{/if}}"
-           data-cat="{{category}}"
-           data-plugin-urls="{{#each plugins}}{{url}}{{#unless @last}}|{{/unless}}{{/each}}"
-           x-show="matches({{#if enabled}}true{{else}}false{{/if}}, '{{category}}', ($el.dataset.pluginUrls || '').split('|').filter(Boolean))">
-        {{!-- Main card (navigates to options) --}}
-        <div
-          class="card bg-base-100 shadow-sm border border-base-300 hover:border-primary hover:shadow-md cursor-pointer transition-all active:scale-[0.985] h-full {{#unless enabled}}opacity-75{{/unless}}"
-          hx-get="/configuration/option/{{name}}"
-          hx-target="#config-content"
-          hx-swap="innerHTML"
-          hx-push-url="true"
-          title="Configure {{name}}">
-          <div class="card-body p-2 sm:p-3 gap-1.5 sm:gap-2 items-center text-center min-h-[6.25rem] sm:min-h-[7.5rem]">
-            {{#if plugins}}
-              <div class="absolute top-1 left-1 right-8 z-10 flex flex-wrap gap-0.5 min-w-0 overflow-hidden pointer-events-none">
-                {{#each plugins}}
-                  {{> partials/plugin_pill url=url display=display size="badge-xs"}}
-                {{/each}}
-              </div>
-            {{/if}}
-            <div class="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center flex-shrink-0">
-              {{#if icon}}
-                <img src="{{icon}}" class="max-w-full max-h-full object-contain" alt=""
-                     onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
-                <span class="hidden text-2xl sm:text-3xl leading-none opacity-50">⚙</span>
-              {{else}}
-                <span class="text-2xl sm:text-3xl leading-none opacity-50">⚙</span>
-              {{/if}}
-            </div>
-            <div class="font-mono text-[11px] sm:text-xs font-medium truncate w-full leading-tight">{{name}}</div>
+      <button type="button"
+              class="group relative flex items-start gap-3 rounded-box border border-base-300 bg-base-100 p-3 text-left cursor-pointer transition-[border-color,box-shadow,transform] hover:border-primary/50 hover:shadow-md active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-primary"
+              data-svc
+              data-enabled="{{#if enabled}}true{{else}}false{{/if}}"
+              data-cat="{{category}}"
+              data-plugin-urls="{{#each plugins}}{{url}}{{#unless @last}}|{{/unless}}{{/each}}"
+              data-search="{{name}} {{category}}{{#each plugins}} {{display}}{{/each}} {{description}}"
+              x-show="cardVisible($el)"
+              hx-get="/configuration/option/{{name}}"
+              hx-target="#config-content"
+              hx-swap="innerHTML"
+              hx-push-url="true"
+              title="Configure {{name}}">
+        <span class="relative w-11 h-11 shrink-0 rounded-xl bg-base-200 p-2 flex items-center justify-center{{#unless enabled}} grayscale-[35%] opacity-80 group-hover:grayscale-0 group-hover:opacity-100 transition{{/unless}}">
+          {{#if icon}}
+            <img src="{{icon}}" class="max-w-full max-h-full object-contain" alt="" loading="lazy"
+                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+            <span class="hidden text-xl leading-none opacity-50">⚙</span>
+          {{else}}
+            <span class="text-xl leading-none opacity-50">⚙</span>
+          {{/if}}
+          {{#if enabled}}
+            <span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-success ring-2 ring-base-100" title="Installed"></span>
+          {{/if}}
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="flex items-center gap-2 min-w-0">
+            <span class="font-mono text-sm font-semibold truncate">{{name}}</span>
             {{#if enabled}}
-              <span class="badge badge-success badge-sm">Installed</span>
-            {{else}}
-              <span class="badge badge-ghost badge-sm">Available</span>
+              <span class="badge badge-soft badge-success badge-xs shrink-0 ml-auto">Installed</span>
             {{/if}}
-          </div>
-        </div>
-
-        {{!-- Info popover (same pattern as option fields); stops click so card does not navigate --}}
-        <div class="absolute top-1 right-1 z-10"
-             @click.stop
-             @mousedown.stop>
-          <div class="dropdown dropdown-end dropdown-hover">
-            <span tabindex="0" role="button"
-                  class="btn btn-ghost btn-xs btn-circle min-h-0 h-6 w-6 text-base-content/40 hover:text-primary leading-none"
-                  title="About {{name}}"
-                  aria-label="About {{name}}">ⓘ</span>
-            <div tabindex="0"
-                 class="dropdown-content card card-sm bg-base-100 shadow-lg border border-base-300 z-30 w-72 text-left mt-1">
-              <div class="card-body p-3 gap-1.5 text-xs">
-                <div class="flex items-center gap-2 min-w-0">
-                  {{#if icon}}
-                    <img src="{{icon}}" class="w-5 h-5 object-contain flex-shrink-0" alt="" />
-                  {{/if}}
-                  <span class="font-mono font-semibold truncate">{{name}}</span>
-                </div>
-                <div class="text-[10px] opacity-60">{{category}} · {{#if enabled}}Installed{{else}}Available{{/if}}{{#each plugins}} · {{display}}{{/each}}</div>
-                {{#if description}}
-                  <div class="mt-0.5 leading-relaxed text-base-content/80 whitespace-pre-line max-h-48 overflow-y-auto">{{description}}</div>
-                {{else}}
-                  <div class="opacity-50 italic">No description available.</div>
-                {{/if}}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+          </span>
+          {{#if description}}
+            <span class="mt-0.5 text-xs leading-snug text-base-content/60 line-clamp-2">{{description}}</span>
+          {{else}}
+            <span class="block mt-0.5 text-xs text-base-content/40 italic">No description</span>
+          {{/if}}
+          {{#if plugins}}
+            <span class="flex flex-wrap gap-1 mt-1.5 min-w-0 overflow-hidden">
+              {{#each plugins}}
+                {{> partials/plugin_pill url=url display=display size="badge-xs"}}
+              {{/each}}
+            </span>
+          {{/if}}
+        </span>
+      </button>
       {{/each}}
     </div>
   </section>
   {{/each}}
 
-  <div class="text-xs opacity-60 p-4 border border-dashed rounded text-center"
+  <div class="flex flex-col items-center text-center gap-2 py-14 rounded-box border border-dashed border-base-content/15"
        x-cloak
        x-show="!anyVisible()">
-    No services match the current filters.
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" class="w-9 h-9 text-base-content/30" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4M8.5 11h5"/></svg>
+    <div class="font-semibold text-sm">No services match</div>
+    <p class="text-xs text-base-content/60">Try a different search or clear the filters.</p>
+    <button type="button" class="btn btn-sm btn-ghost mt-1" @click="resetFilters()">Clear filters</button>
   </div>
   {{else}}
   {{#unless error}}
-    <div class="text-xs opacity-60 p-4 border border-dashed rounded">No services found.</div>
+    <div class="flex flex-col items-center text-center gap-2 py-14 rounded-box border border-dashed border-base-content/15">
+      <div class="font-semibold text-sm">No services found</div>
+      <p class="text-xs text-base-content/60">The flake evaluation returned no services.</p>
+    </div>
   {{/unless}}
   {{/if}}
 </div>

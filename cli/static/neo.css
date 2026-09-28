@@ -1,7 +1,27 @@
 /* neo navigator styles (extracted from index.html.hbs) */
-.nav-btn { transition: all 0.1s ease; }
-.nav-btn:hover { background-color: #2a2f3a; }
-.nav-btn.active { background-color: #3b82f6; color: white; }
+.nav-btn {
+  transition: background-color 0.12s ease, box-shadow 0.12s ease;
+}
+.nav-btn:hover {
+  background-color: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+}
+/* Active app: soft primary tile + a pill on the sidebar edge (::before; ::after is the warm dot). */
+.nav-btn.active {
+  background-color: color-mix(in oklab, var(--color-primary) 16%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--color-primary) 50%, transparent);
+  color: var(--color-base-content);
+}
+.nav-btn.active::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  width: 4px;
+  height: 1.25rem;
+  transform: translateY(-50%);
+  border-radius: 0 9999px 9999px 0;
+  background-color: var(--color-primary);
+}
 .svc-label { font-size: 9px; line-height: 10px; word-break: break-all; text-align: center; }
 
 /* Ensure the green "warm" dot (::after) is positioned inside the sidebar button */
@@ -13,13 +33,13 @@
 .svc-btn.warm::after {
   content: '';
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 6px;
-  height: 6px;
-  background-color: #4ade80;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  background-color: var(--color-success);
   border-radius: 9999px;
-  box-shadow: 0 0 0 1px #111827;
+  box-shadow: 0 0 0 2px var(--color-base-200);
   pointer-events: none;
   z-index: 10;
 }
@@ -86,3 +106,8 @@ body {
   background: #fff;
 }
 
+
+/* Top-bar address pill: hidden until an app is loaded. */
+.neo-url-pill:has(#current-url:empty) {
+  visibility: hidden;
+}

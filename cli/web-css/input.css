@@ -219,3 +219,36 @@ html.neo-bars-fused #options-sticky-save {
 .neo-pane-tabs .tab {
   white-space: nowrap;
 }
+
+/* Horizontal chip / tab rows scroll sideways without a visible scrollbar. */
+.neo-scroll-x {
+  scrollbar-width: none;
+  overflow-x: auto;
+}
+.neo-scroll-x::-webkit-scrollbar {
+  display: none;
+}
+
+/* Services grid: keyboard hint inside the search field. */
+.neo-kbd-hint {
+  pointer-events: none;
+}
+.neo-search:focus-within .neo-kbd-hint {
+  display: none;
+}
+
+/* Colored unified diff (changes dialog). */
+.neo-diff {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  line-height: 1.35rem;
+}
+.neo-diff > span {
+  display: block;
+  padding: 0 0.75rem;
+  white-space: pre;
+}
+.neo-diff .add { background-color: color-mix(in oklab, var(--color-success) 14%, transparent); }
+.neo-diff .del { background-color: color-mix(in oklab, var(--color-error) 14%, transparent); }
+.neo-diff .hunk { color: var(--color-info); opacity: 0.8; }
+.neo-diff .meta { opacity: 0.45; }

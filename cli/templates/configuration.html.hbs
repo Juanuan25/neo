@@ -38,37 +38,41 @@
     <script src="/static/versioning.js"></script>
   </head>
   <body class="neo-config bg-base-300 text-base-content min-h-dvh" data-theme="{{theme}}">
-    {{#if error}}
-      <div class="alert alert-error mb-4 text-sm flex flex-col sm:flex-row sm:items-start gap-2">
-        <span class="flex-1 whitespace-pre-wrap"><strong>Eval error{{#if error_kind}} ({{error_kind}}){{/if}}:</strong> {{error}}</span>
-        <div class="flex flex-wrap gap-2 shrink-0">
-          {{#if can_store_repair}}
-            <button type="button"
-                    class="btn btn-sm btn-warning"
-                    hx-post="/nix/repair"
-                    hx-target="#changes-body"
-                    hx-swap="innerHTML"
-                    hx-confirm="Run sudo nix-store --verify --repair? This can take a few minutes."
-                    hx-on::after-request="var m=document.getElementById('changes-modal');if(m){m.querySelector('h3').textContent='Nix store repair';m.showModal();}">
-              Repair Nix store
-            </button>
-          {{/if}}
-          {{#if can_flake_update}}
-            <button type="button"
-                    class="btn btn-sm btn-info"
-                    hx-post="/flake/update"
-                    hx-target="#changes-body"
-                    hx-swap="innerHTML"
-                    hx-confirm="Run flake update + template refresh?"
-                    hx-on::after-request="var m=document.getElementById('changes-modal');if(m){m.querySelector('h3').textContent='Update';m.showModal();}">
-              Update flake inputs
-            </button>
-          {{/if}}
-          <button class="btn btn-sm" onclick="location.reload()">Reload</button>
-        </div>
-      </div>
-    {{/if}}
     <div class="max-w-7xl mx-auto" hx-ext="ws" ws-connect="/ws/status">
+      {{#if error}}
+        <div role="alert" class="alert alert-error alert-soft mb-3 sm:mb-4 text-sm items-start">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" class="w-5 h-5 shrink-0 mt-0.5" aria-hidden="true"><path d="M12 8v5M12 16.5v.01"/><path d="M10.3 3.9L2.6 17.5A2 2 0 004.3 20.5h15.4a2 2 0 001.7-3l-7.7-13.6a2 2 0 00-3.4 0z" stroke-linejoin="round"/></svg>
+          <div class="min-w-0 flex-1">
+            <div class="font-semibold">Evaluation failed{{#if error_kind}} <span class="font-normal opacity-70">({{error_kind}})</span>{{/if}}</div>
+            <div class="mt-1 text-xs whitespace-pre-wrap break-words font-mono opacity-80 max-h-48 overflow-auto">{{error}}</div>
+            <div class="mt-3 flex flex-wrap gap-2">
+              {{#if can_store_repair}}
+                <button type="button"
+                        class="btn btn-sm btn-warning"
+                        hx-post="/nix/repair"
+                        hx-target="#changes-body"
+                        hx-swap="innerHTML"
+                        hx-confirm="Run sudo nix-store --verify --repair? This can take a few minutes."
+                        hx-on::after-request="var m=document.getElementById('changes-modal');if(m){m.querySelector('h3').textContent='Nix store repair';m.showModal();}">
+                  Repair Nix store
+                </button>
+              {{/if}}
+              {{#if can_flake_update}}
+                <button type="button"
+                        class="btn btn-sm btn-info"
+                        hx-post="/flake/update"
+                        hx-target="#changes-body"
+                        hx-swap="innerHTML"
+                        hx-confirm="Run flake update + template refresh?"
+                        hx-on::after-request="var m=document.getElementById('changes-modal');if(m){m.querySelector('h3').textContent='Update';m.showModal();}">
+                  Update flake inputs
+                </button>
+              {{/if}}
+              <button class="btn btn-sm btn-ghost" onclick="location.reload()">Reload</button>
+            </div>
+          </div>
+        </div>
+      {{/if}}
       {{!-- Shell owns navbar + tabs + breadcrumb so Alpine can drive chrome outside swaps. --}}
       <div id="config-shell"
            x-data="configShell()"
@@ -80,86 +84,81 @@
           covers both bars so blur is unbroken. Positioned by configuration.js.
         --}}
         <div id="config-fused-glass" class="neo-fused-glass" hidden aria-hidden="true"></div>
-        {{!-- Sticky config bar: glass chrome; fuses with the option-pane save strip on scroll. --}}
-        <div id="config-action-bar"
-             class="navbar h-14 min-h-14 sm:h-16 sm:min-h-16 bg-base-100/60 backdrop-blur-xs rounded-box mb-3 sm:mb-6 shadow sticky z-30 transition-[background-color,box-shadow,border-radius] duration-200"
-             style="top: var(--neo-sticky-bar-top)">
-          <div class="flex-1 min-w-0 flex items-center gap-2 px-2 sm:px-4">
+        {{!-- Sticky top bar (glass): brand · tabs (md+) · status + Update/Activate.
+             Fuses with the option-pane strip on scroll. Height is mirrored by
+             --neo-action-bar-height in input.css — keep them in sync. --}}
+        <header id="config-action-bar"
+                class="navbar h-14 min-h-14 sm:h-16 sm:min-h-16 gap-2 bg-base-100/60 backdrop-blur-xs rounded-box mb-2 md:mb-6 shadow sticky z-30 transition-[background-color,box-shadow,border-radius] duration-200"
+                style="top: var(--neo-sticky-bar-top)">
+          <div class="flex-1 md:flex-none min-w-0 flex items-center pl-1 sm:pl-2">
             <button type="button"
-                    class="text-2xl font-bold flex-shrink-0 hover:opacity-80 transition-opacity"
+                    class="flex items-center gap-2 rounded-field px-1 py-1 hover:bg-base-content/5 transition-colors"
                     @click="goHome()"
-                    title="Back to configuration home">neo</button>
-            {{!-- Default subtitle when on a grid/tab. --}}
-            <span class="text-sm opacity-50 truncate"
-                  x-show="!detail"
-                  x-cloak>homeserver config</span>
-            {{!-- Active service/section while editing (bold mono). --}}
-            <span class="text-sm font-mono font-bold opacity-90 truncate min-w-0"
-                  x-show="detail"
-                  x-text="detail"
-                  x-cloak
-                  :title="detail"></span>
+                    title="Back to configuration home">
+              <img src="/static/neo-icon.png" class="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-contain" alt="">
+              <span class="text-xl sm:text-2xl font-bold tracking-tight">neo</span>
+            </button>
           </div>
-          {{!-- Activity + action bar: one spinner for page-load + nix-eval (client folds
-               data-eval-busy from the action bar into #nav-busy); pending/reset + Update/Activate. --}}
-          <div class="flex-none flex items-center gap-2 pr-2">
+
+          {{> partials/shell_tabs extraClass="hidden md:flex mx-auto"}}
+
+          {{!-- Activity + actions: one spinner for page-load + nix-eval (client folds
+               data-eval-busy from #action-bar-dynamic into #nav-busy); status pill /
+               reset are server-rendered (action_bar.rs) and pushed over the WS. --}}
+          <div class="flex-none md:flex-1 flex items-center justify-end gap-1 sm:gap-1.5 pr-1 sm:pr-2">
             {{!-- Combined busy: .is-busy from load and/or eval (not Tailwind `hidden`+`inline-flex`). --}}
             <span id="nav-busy"
-                  class="items-center gap-1 text-[10px] text-info opacity-90"
+                  class="items-center gap-1.5 text-xs text-info px-1"
                   title="Loading…"
                   aria-live="polite"
                   aria-hidden="true">
-              <span class="loading loading-ring loading-xs"></span>
-              <span class="hidden sm:inline">Loading</span>
+              <span class="loading loading-ring loading-sm"></span>
+              <span class="hidden lg:inline">Loading</span>
             </span>
             <div id="action-bar-dynamic"
-                 class="flex items-center gap-2"
+                 class="flex items-center gap-1"
                  data-eval-busy="false"
                  hx-get="/changes/action-bar"
                  hx-trigger="load"
                  hx-swap="outerHTML"></div>
-            <div class="join">
-              <button hx-post="/flake/update" hx-target="#changes-body" hx-swap="innerHTML" hx-confirm="Run flake update + template refresh?" hx-on::after-request="var m=document.getElementById('changes-modal');m.querySelector('h3').textContent='Update';m.showModal();" class="btn btn-xs join-item btn-ghost">↻<span class="hidden sm:inline ml-1">Update</span></button>
-              <button hx-post="/actions/activate" hx-target="#changes-body" hx-swap="innerHTML" hx-confirm="Trigger full activation now (via service)?" hx-on::after-request="var m=document.getElementById('changes-modal');m.querySelector('h3').textContent='Activation';m.showModal();" class="btn btn-xs join-item btn-error">▶<span class="hidden sm:inline ml-1">Activate</span></button>
-            </div>
+            <div class="w-px h-6 bg-base-300 mx-0.5 hidden sm:block" aria-hidden="true"></div>
+            <button type="button"
+                    hx-post="/flake/update" hx-target="#changes-body" hx-swap="innerHTML"
+                    hx-confirm="Run flake update + template refresh?"
+                    hx-on::after-request="var m=document.getElementById('changes-modal');m.querySelector('h3').textContent='Update';m.showModal();"
+                    class="btn btn-sm btn-ghost gap-1.5 px-2 lg:px-3"
+                    title="Update flake inputs and refresh the template">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true"><path d="M12 4v10M7.5 9.5L12 14l4.5-4.5"/><path d="M5 17v1.5A1.5 1.5 0 006.5 20h11a1.5 1.5 0 001.5-1.5V17"/></svg>
+              <span class="hidden lg:inline">Update</span>
+            </button>
+            <button type="button"
+                    hx-post="/actions/activate" hx-target="#changes-body" hx-swap="innerHTML"
+                    hx-confirm="Trigger full activation now (via service)?"
+                    hx-on::after-request="var m=document.getElementById('changes-modal');m.querySelector('h3').textContent='Activation';m.showModal();"
+                    class="btn btn-sm btn-primary gap-1.5 px-2.5 sm:px-3"
+                    title="Build and switch to the current configuration">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4" aria-hidden="true"><path d="M8 5.6v12.8a1 1 0 001.5.9l10.2-6.4a1 1 0 000-1.7L9.5 4.7A1 1 0 008 5.6z"/></svg>
+              <span class="hidden sm:inline">Activate</span>
+            </button>
           </div>
-        </div>
+        </header>
 
-        <div class="tabs tabs-border mb-2 text-sm">
-          <button
-            type="button"
-            class="tab"
-            :class="{ 'tab-active': tab === 'services' }"
-            @click="loadTab('services')">
-            Services
-          </button>
-          <button
-            type="button"
-            class="tab"
-            :class="{ 'tab-active': tab === 'settings' }"
-            @click="loadTab('settings')">
-            Settings
-          </button>
-          <button
-            type="button"
-            class="tab"
-            :class="{ 'tab-active': tab === 'versioning' }"
-            @click="loadTab('versioning')">
-            Versioning
-          </button>
-        </div>
+        {{> partials/shell_tabs extraClass="md:hidden w-full mb-3"}}
+
         {{!-- Persistent breadcrumb (outside #config-content); goUp() pushes the parent URL. --}}
-        <div class="flex items-center gap-1.5 text-sm mb-3 min-h-[1.5rem]"
+        <nav class="flex items-center gap-1 text-sm mb-3 min-h-8"
+             aria-label="Breadcrumb"
              x-show="detail"
              x-cloak>
           <button type="button"
-                  class="btn btn-ghost btn-xs gap-1 px-1.5"
+                  class="btn btn-ghost btn-sm gap-1 px-2 -ml-1 font-normal text-base-content/70 hover:text-base-content"
                   @click="goUp()">
-            ← <span x-text="sectionLabel()"></span>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4" aria-hidden="true"><path fill-rule="evenodd" d="M12.8 5.2a.75.75 0 010 1.06L9.06 10l3.74 3.74a.75.75 0 11-1.06 1.06l-4.27-4.27a.75.75 0 010-1.06L11.74 5.2a.75.75 0 011.06 0z" clip-rule="evenodd"/></svg>
+            <span x-text="sectionLabel()"></span>
           </button>
-          <span class="opacity-40 select-none" aria-hidden="true">›</span>
-          <span class="font-mono text-xs font-medium truncate" x-text="detail"></span>
-        </div>
+          <span class="text-base-content/30 select-none" aria-hidden="true">/</span>
+          <span class="font-mono text-sm font-semibold truncate px-1" x-text="detail" :title="detail" aria-current="page"></span>
+        </nav>
         {{!--
           Source for shell nav: htmx.ajax ignores context.push; history only updates from
           hx-push-url on the source element. navigateContent() passes this as `source`.
@@ -177,7 +176,10 @@
              hx-swap="innerHTML"
              hx-push-url="false"
              class="min-h-[100px]">
-          <div class="text-xs opacity-60 p-4 border border-dashed rounded">Loading...</div>
+          <div class="flex flex-col items-center justify-center gap-2 py-16 text-sm text-base-content/50">
+            <span class="loading loading-spinner loading-md"></span>
+            Loading…
+          </div>
         </div>
       </div>
     </div>
@@ -185,49 +187,64 @@
     {{!-- Global toast host (outside #config-content so it is never swapped away). --}}
     <div id="toast-host" class="toast toast-top toast-end z-[60] fixed top-4 right-4"></div>
 
-    <dialog id="changes-modal" class="modal">
-      <div class="modal-box max-w-4xl">
-        <h3 id="changes-modal-title" class="font-bold text-lg mb-2">Pending changes summary</h3>
-        <div id="changes-body" class="max-h-[60vh] overflow-auto"></div>
-        <div class="modal-action">
-          <form method="dialog" class="flex flex-nowrap items-center gap-2">
-            <button type="submit" class="btn btn-sm btn-ghost">Close</button>
+    {{!-- Shared dialog for changes / activation / update / repair output. Callers set the
+         first <h3> (title) and fill #changes-body. --}}
+    <dialog id="changes-modal" class="modal modal-bottom sm:modal-middle">
+      <div class="modal-box max-w-4xl p-0 flex flex-col max-h-[85dvh]">
+        <div class="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-base-300">
+          <h3 id="changes-modal-title" class="font-semibold text-lg min-w-0 truncate">Pending changes</h3>
+          <form method="dialog">
+            <button type="submit" class="btn btn-sm btn-ghost btn-square" aria-label="Close">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5" aria-hidden="true"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>
+            </button>
           </form>
         </div>
+        <div id="changes-body" class="px-4 sm:px-6 py-4 overflow-auto"></div>
       </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
 
-    <dialog id="activation-success" class="modal">
+    <dialog id="activation-success" class="modal modal-bottom sm:modal-middle">
       <div class="modal-box max-w-3xl">
-        <h3 class="font-bold text-lg mb-2 text-success">Activation complete</h3>
+        <div class="flex items-center gap-3 mb-3">
+          <span class="w-9 h-9 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+          </span>
+          <h3 class="font-semibold text-lg">Activation complete</h3>
+        </div>
         <div id="activation-success-body" class="max-h-[50vh] overflow-auto text-sm"></div>
         <div class="modal-action">
           <form method="dialog" class="flex flex-nowrap items-center gap-2">
-            <button type="button" onclick="confirmActivationReload()" class="btn btn-sm btn-success">Confirm &amp; reload</button>
             <button type="submit" class="btn btn-sm btn-ghost">Close</button>
+            <button type="button" onclick="confirmActivationReload()" class="btn btn-sm btn-success">Confirm &amp; reload</button>
           </form>
         </div>
       </div>
     </dialog>
 
     <dialog id="logs-dialog" class="modal">
-      <div class="modal-box w-11/12 max-w-5xl">
-        <h3 class="font-bold text-lg mb-1">Logs for <span id="log-unit" class="font-mono"></span></h3>
-        <div class="text-[10px] opacity-60 mb-1">Live follow (journalctl -f). New lines appended automatically; scrollable infinitely.</div>
-        <pre id="log-pre" class="bg-base-300 p-2 rounded text-[10px] font-mono whitespace-pre-wrap overflow-auto max-h-[55vh] min-h-[180px] border border-base-300"></pre>
-        <div class="modal-action">
+      <div class="modal-box w-11/12 max-w-5xl p-0 overflow-hidden">
+        <div class="flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-base-300">
+          <span class="neo-unit-dot" data-state="busy" aria-hidden="true"></span>
+          <div class="min-w-0 flex-1">
+            <h3 class="font-semibold text-base truncate">Logs · <span id="log-unit" class="font-mono"></span></h3>
+            <div class="text-[11px] text-base-content/50">Live follow (journalctl -f) — new lines stream in automatically.</div>
+          </div>
+        </div>
+        <pre id="log-pre" class="bg-neutral text-neutral-content px-4 py-3 text-[11px] leading-relaxed font-mono whitespace-pre-wrap overflow-auto h-[60vh]"></pre>
+        <div class="flex items-center justify-end gap-2 px-4 sm:px-5 py-3 border-t border-base-300">
           <form method="dialog" class="flex flex-nowrap items-center gap-2">
-            <button type="button" class="btn btn-sm" onclick="clearUnitLogs()">Clear</button>
-            <button type="submit" class="btn btn-sm btn-ghost" onclick="closeUnitLogs()">Close</button>
+            <button type="button" class="btn btn-sm btn-ghost" onclick="clearUnitLogs()">Clear</button>
+            <button type="submit" class="btn btn-sm" onclick="closeUnitLogs()">Close</button>
           </form>
         </div>
       </div>
     </dialog>
 
-    <dialog id="helper-dialog" class="modal">
+    <dialog id="helper-dialog" class="modal modal-bottom sm:modal-middle">
       <div class="modal-box max-w-md">
-        <h3 id="helper-dialog-title" class="font-bold text-lg mb-1">Helper</h3>
-        <p id="helper-dialog-desc" class="text-sm opacity-70 mb-3"></p>
+        <h3 id="helper-dialog-title" class="font-semibold text-lg mb-1">Helper</h3>
+        <p id="helper-dialog-desc" class="text-sm text-base-content/70 mb-4"></p>
         <form id="helper-dialog-form" class="space-y-3" onsubmit="return false;">
           <div id="helper-dialog-fields" class="space-y-3"></div>
           <div class="modal-action">

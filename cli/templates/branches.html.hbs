@@ -1,72 +1,94 @@
 {{!-- Versioning tab: D3 commit graph + detail panel + generations + multi-select diff --}}
 <div id="versioning-root"
-     class="mt-2 sm:mt-3 space-y-3 sm:space-y-4"
+     class="space-y-5 sm:space-y-6"
      data-versioning="1">
-  <div class="border border-base-300 rounded overflow-hidden bg-base-100">
-    <div class="bg-base-200 px-3 py-1.5 text-xs font-semibold flex items-center justify-between gap-2">
-      <span>Versioning</span>
-      <span class="opacity-50 font-normal hidden sm:inline">activation history · click select · Ctrl/Cmd multi-select (max 2)</span>
+  <div>
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight">Versioning</h2>
+    <p class="text-sm text-base-content/60 mt-0.5">Every activation is a commit. Inspect, compare or roll back configuration, data and system generations.</p>
+  </div>
+
+  <div class="rounded-box border border-base-300 bg-base-100 overflow-hidden">
+    <div class="flex items-center gap-3 px-3 sm:px-4 py-3 border-b border-base-300">
+      <span class="w-9 h-9 shrink-0 rounded-xl bg-base-200 text-base-content/70 flex items-center justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" class="w-5 h-5" aria-hidden="true"><circle cx="6" cy="5.5" r="2"/><circle cx="6" cy="18.5" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7.5v9M18 10c0 4-6 3.5-11 7"/></svg>
+      </span>
+      <div class="min-w-0 flex-1">
+        <h3 class="font-semibold text-sm sm:text-base">Activation history</h3>
+        <p class="text-xs text-base-content/60 hidden sm:block">Click a commit to inspect it · Ctrl/Cmd-click a second one to compare.</p>
+      </div>
     </div>
-    <div class="grid grid-cols-1 lg:grid-cols-5 gap-0 lg:min-h-[280px]">
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-0 lg:min-h-[320px]">
       {{!-- Graph: half viewport on mobile for easier scrolling to selection/actions --}}
       <div class="lg:col-span-3 border-b lg:border-b-0 lg:border-r border-base-300 relative min-w-0">
         <div id="versioning-graph-host"
-             class="w-full min-h-[160px] max-h-[50dvh] lg:min-h-[280px] lg:max-h-[min(70vh,720px)] overflow-auto bg-base-300/40"
+             class="w-full min-h-[160px] max-h-[50dvh] lg:min-h-[320px] lg:max-h-[min(70vh,720px)] overflow-auto bg-base-200/50"
              role="img"
              aria-label="Activation commit graph"></div>
         <div id="versioning-graph-empty"
-             class="hidden absolute inset-0 flex items-center justify-center text-sm opacity-50 p-4 text-center">
-          No activation branches yet. Activate a configuration to start history.
+             class="hidden absolute inset-0 flex flex-col items-center justify-center gap-1 text-sm p-4 text-center">
+          <span class="font-semibold">No activations yet</span>
+          <span class="text-xs text-base-content/60">Activate a configuration to start the history.</span>
         </div>
       </div>
       {{!-- Detail --}}
       <div class="lg:col-span-2 flex flex-col min-h-0 lg:min-h-[200px]">
-        <div class="bg-base-200 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
+        <div class="px-3 sm:px-4 pt-3 text-[11px] font-semibold uppercase tracking-wider text-base-content/50">
           Selection
         </div>
-        <div id="versioning-detail" class="flex-1 p-2 sm:p-3 text-sm space-y-3 overflow-auto">
-          <p class="opacity-50 text-xs">Select a commit on the graph.</p>
+        <div id="versioning-detail" class="flex-1 px-3 sm:px-4 py-2 text-sm space-y-3 overflow-auto">
+          <p class="text-base-content/50 text-xs">Select a commit on the graph.</p>
         </div>
-        <div id="versioning-actions" class="px-3 py-2 border-t border-base-300 flex flex-wrap gap-2 bg-base-200/50">
+        <div id="versioning-actions" class="px-3 sm:px-4 py-2.5 border-t border-base-300 flex flex-wrap gap-2">
           <button type="button"
                   id="ver-btn-activate"
-                  class="btn btn-xs btn-error"
+                  class="btn btn-sm btn-primary"
                   disabled
                   title="Checkout and run full activate (new NixOS generation from this config)">
             Activate this config
           </button>
           <button type="button"
                   id="ver-btn-clear"
-                  class="btn btn-xs btn-ghost"
+                  class="btn btn-sm btn-ghost"
                   title="Clear selection">
             Clear
           </button>
         </div>
-        <div id="versioning-status" class="px-3 py-2 text-xs text-base-content/80 bg-base-200 min-h-[1.5rem] max-h-64 overflow-auto"></div>
+        <div id="versioning-status" class="px-3 sm:px-4 text-xs text-base-content/80 empty:hidden py-2 border-t border-base-300 max-h-64 overflow-auto"></div>
       </div>
     </div>
   </div>
 
   {{!-- Diff panel (two commits) --}}
-  <div id="versioning-diff-wrap" class="border border-base-300 rounded overflow-hidden hidden">
-    <div class="bg-base-200 px-3 py-1.5 text-xs font-semibold flex items-center justify-between">
-      <span>settings.toml diff</span>
-      <span id="versioning-diff-label" class="font-mono font-normal opacity-60 text-[10px]"></span>
+  <div id="versioning-diff-wrap" class="rounded-box border border-base-300 bg-base-100 overflow-hidden hidden">
+    <div class="flex items-center gap-3 px-3 sm:px-4 py-3 border-b border-base-300">
+      <span class="w-9 h-9 shrink-0 rounded-xl bg-base-200 text-base-content/70 flex items-center justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" class="w-5 h-5" aria-hidden="true"><path d="M7 4v10M2 9h10M12 19h10"/></svg>
+      </span>
+      <div class="min-w-0 flex-1">
+        <h3 class="font-semibold text-sm sm:text-base">settings.toml diff</h3>
+        <p id="versioning-diff-label" class="font-mono text-[11px] text-base-content/50 truncate"></p>
+      </div>
     </div>
-    <div id="versioning-diff" class="p-2"></div>
+    <div id="versioning-diff" class="p-3"></div>
   </div>
 
   {{!-- ZFS snapshots of all Neo data (hidden when the machine has no restore hook) --}}
   <div id="versioning-zfs" hx-get="/versioning/zfs" hx-trigger="load" hx-swap="outerHTML"></div>
 
   {{!-- System generations --}}
-  <div class="border border-base-300 rounded overflow-hidden">
-    <div class="bg-base-200 px-3 py-1.5 text-xs font-semibold flex items-center justify-between gap-2">
-      <span>System generations (NixOS)</span>
-      <button type="button" id="ver-btn-refresh-gens" class="btn btn-ghost btn-xs">Refresh</button>
+  <div class="rounded-box border border-base-300 bg-base-100 overflow-hidden">
+    <div class="flex items-center gap-3 px-3 sm:px-4 py-3 border-b border-base-300">
+      <span class="w-9 h-9 shrink-0 rounded-xl bg-base-200 text-base-content/70 flex items-center justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><path d="M12 3l8 4.5-8 4.5-8-4.5L12 3z"/><path d="M4 12l8 4.5 8-4.5M4 16.5L12 21l8-4.5"/></svg>
+      </span>
+      <div class="min-w-0 flex-1">
+        <h3 class="font-semibold text-sm sm:text-base">System generations</h3>
+        <p class="text-xs text-base-content/60">NixOS boot entries — switch or boot into an earlier system.</p>
+      </div>
+      <button type="button" id="ver-btn-refresh-gens" class="btn btn-ghost btn-sm">Refresh</button>
     </div>
-    <div id="versioning-generations" class="p-2 text-sm">
-      <p class="opacity-50 text-xs px-1">Loading generations…</p>
+    <div id="versioning-generations" class="p-2 sm:p-3 text-sm">
+      <p class="text-base-content/50 text-xs px-1">Loading generations…</p>
     </div>
   </div>
 </div>

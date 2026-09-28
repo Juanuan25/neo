@@ -259,6 +259,123 @@ window.configShell = function configShell() {
   };
 };
 
+/**
+ * Alpine state for the Services tab: search + status / category / source filters.
+ * Cards (`[data-svc]`) carry data-enabled / data-cat / data-plugin-urls / data-search.
+ * Filters persist per browser tab (sessionStorage) so returning from a service keeps them.
+ */
+window.servicesGrid = function servicesGrid() {
+  var STORE_KEY = 'neo.servicesFilters';
+  return {
+    q: '',
+    status: 'all', // all | installed | available
+    category: 'all',
+    plugin: 'all', // all | core | <plugin url>
+    counts: { all: 0, installed: 0, available: 0 },
+
+    init() {
+      var cards = this.$root.querySelectorAll('[data-svc]');
+      var installed = 0;
+      cards.forEach(function (c) {
+        if (c.dataset.enabled === 'true') installed++;
+      });
+      this.counts = { all: cards.length, installed: installed, available: cards.length - installed };
+      try {
+        var saved = JSON.parse(sessionStorage.getItem(STORE_KEY) || 'null');
+        if (saved) {
+          this.q = saved.q || '';
+          this.status = saved.status || 'all';
+          this.category = saved.category || 'all';
+          this.plugin = saved.plugin || 'all';
+        }
+      } catch (e) {}
+      // Drop stale filters (category / plugin no longer present after a config change).
+      var root = this.$root;
+      var hasCard = function (pred) {
+        return Array.prototype.some.call(cards, pred);
+      };
+      var cat = this.category;
+      if (cat !== 'all' && !hasCard(function (c) { return c.dataset.cat === cat; })) this.category = 'all';
+      var pl = this.plugin;
+      if (pl !== 'all' && !root.querySelector('select option[value="' + (window.CSS && CSS.escape ? CSS.escape(pl) : pl) + '"]')) {
+        this.plugin = 'all';
+      }
+      var self = this;
+      this.$watch('q', function () { self.persist(); });
+      this.$watch('status', function () { self.persist(); });
+      this.$watch('category', function () { self.persist(); });
+      this.$watch('plugin', function () { self.persist(); });
+    },
+
+    persist() {
+      try {
+        sessionStorage.setItem(
+          STORE_KEY,
+          JSON.stringify({ q: this.q, status: this.status, category: this.category, plugin: this.plugin })
+        );
+      } catch (e) {}
+    },
+
+    /** "/" focuses search (unless typing in another field). */
+    onKey(e) {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      var t = e.target;
+      var tag = (t && t.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+      if (document.querySelector('dialog[open]')) return;
+      e.preventDefault();
+      if (this.$refs.search) this.$refs.search.focus();
+    },
+
+    cardVisible(el) {
+      // Read every filter up front so Alpine tracks all of them as dependencies.
+      var q = this.q.trim().toLowerCase();
+      var status = this.status;
+      var category = this.category;
+      var plugin = this.plugin;
+      var enabled = el.dataset.enabled === 'true';
+      if (status === 'installed' && !enabled) return false;
+      if (status === 'available' && enabled) return false;
+      if (category !== 'all' && el.dataset.cat !== category) return false;
+      if (plugin !== 'all') {
+        var urls = (el.dataset.pluginUrls || '').split('|').filter(Boolean);
+        if (plugin === 'core' ? urls.length !== 0 : urls.indexOf(plugin) === -1) return false;
+      }
+      if (q) {
+        var hay = (el.dataset.search || '').toLowerCase();
+        var terms = q.split(/\s+/);
+        for (var i = 0; i < terms.length; i++) {
+          if (hay.indexOf(terms[i]) === -1) return false;
+        }
+      }
+      return true;
+    },
+
+    visibleCount(section) {
+      if (!section) return 0;
+      var self = this;
+      return Array.prototype.filter.call(section.querySelectorAll('[data-svc]'), function (c) {
+        return self.cardVisible(c);
+      }).length;
+    },
+
+    sectionVisible(section) {
+      return this.visibleCount(section) > 0;
+    },
+
+    anyVisible() {
+      return this.visibleCount(this.$root) > 0;
+    },
+
+    resetFilters() {
+      this.q = '';
+      this.status = 'all';
+      this.category = 'all';
+      this.plugin = 'all';
+    },
+  };
+};
+
 (function () {
   /** Client-side page load in flight (HTMX → #config-content). */
   var navLoadBusy = false;

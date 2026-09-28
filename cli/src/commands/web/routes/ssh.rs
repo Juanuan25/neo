@@ -92,22 +92,23 @@ fn rotate_key() -> Result<String, String> {
     read_public_key()
 }
 
+const KEY_ICON: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16.5 7l2.5 2.5M14.5 9l2 2"/></svg>"#;
+
 fn card_ok(key: &str) -> String {
     let escaped = escape_html(key);
     let path = escape_html(PUB_KEY_PATH);
     format!(
-        r##"<div id="ssh-pubkey-card" class="card bg-base-100 shadow-sm border border-base-300 p-3 col-span-full">
-  <div class="flex flex-wrap items-start justify-between gap-2 mb-1">
-    <div>
-      <div class="text-sm font-semibold">Homeserver SSH public key</div>
-      <div class="text-[10px] opacity-50 font-mono">{path}</div>
+        r##"<div id="ssh-pubkey-card" class="rounded-box border border-base-300 bg-base-100 p-4">
+  <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+    <span class="w-9 h-9 shrink-0 rounded-xl bg-base-200 text-base-content/70 flex items-center justify-center">{KEY_ICON}</span>
+    <div class="min-w-0 flex-1">
+      <div class="font-semibold text-sm">Homeserver SSH public key</div>
+      <div class="text-xs text-base-content/60">Authorize this key on remotes (e.g. backup targets). <span class="font-mono text-base-content/45 break-all">{path}</span></div>
     </div>
-    <div class="flex items-center gap-1">
-      <button type="button" class="btn btn-xs btn-ghost"
-        onclick="navigator.clipboard.writeText(document.getElementById('ssh-pubkey-value').textContent.trim())">
-        Copy
-      </button>
-      <button type="button" class="btn btn-xs btn-warning"
+    <div class="flex items-center gap-1.5 shrink-0">
+      <button type="button" class="btn btn-sm btn-ghost"
+        onclick="var b=this;navigator.clipboard.writeText(document.getElementById('ssh-pubkey-value').textContent.trim()).then(function(){{b.textContent='Copied';setTimeout(function(){{b.textContent='Copy'}},1500)}})">Copy</button>
+      <button type="button" class="btn btn-sm btn-soft btn-warning"
         hx-post="/ssh/regenerate"
         hx-target="#ssh-pubkey-card"
         hx-swap="outerHTML"
@@ -116,7 +117,7 @@ fn card_ok(key: &str) -> String {
       </button>
     </div>
   </div>
-  <pre id="ssh-pubkey-value" class="text-[10px] font-mono bg-base-300 p-2 rounded overflow-x-auto whitespace-pre-wrap break-all">{escaped}</pre>
+  <pre id="ssh-pubkey-value" class="mt-3 text-[11px] leading-relaxed font-mono bg-base-200 border border-base-300 px-3 py-2 rounded-field overflow-x-auto whitespace-pre-wrap break-all">{escaped}</pre>
 </div>"##
     )
 }
@@ -125,14 +126,15 @@ fn card_err(msg: &str) -> String {
     let msg = escape_html(msg);
     let path = escape_html(PUB_KEY_PATH);
     format!(
-        r##"<div id="ssh-pubkey-card" class="card bg-base-100 shadow-sm border border-warning p-3 col-span-full">
-  <div class="flex flex-wrap items-start justify-between gap-2 mb-1">
-    <div>
-      <div class="text-sm font-semibold text-warning">Homeserver SSH public key</div>
-      <p class="text-xs opacity-70 mt-1">{msg}</p>
-      <p class="text-[10px] opacity-50 mt-1">Expected at <span class="font-mono">{path}</span> after activation.</p>
+        r##"<div id="ssh-pubkey-card" class="rounded-box border border-warning/40 bg-warning/5 p-4">
+  <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+    <span class="w-9 h-9 shrink-0 rounded-xl bg-warning/15 text-warning flex items-center justify-center">{KEY_ICON}</span>
+    <div class="min-w-0 flex-1">
+      <div class="font-semibold text-sm">Homeserver SSH public key</div>
+      <p class="text-xs text-base-content/70 mt-0.5">{msg}</p>
+      <p class="text-xs text-base-content/50 mt-0.5">Expected at <span class="font-mono">{path}</span> after activation.</p>
     </div>
-    <button type="button" class="btn btn-xs btn-primary"
+    <button type="button" class="btn btn-sm btn-primary shrink-0"
       hx-post="/ssh/regenerate"
       hx-target="#ssh-pubkey-card"
       hx-swap="outerHTML">

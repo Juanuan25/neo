@@ -139,16 +139,20 @@ pub async fn render_card(notice: Option<(&'static str, String)>) -> String {
     let busy = pending.is_some();
 
     let mut html = format!(
-        r##"<div id="{CARD_ID}" class="border border-base-300 rounded overflow-hidden">
-<div class="bg-base-200 px-3 py-1.5 text-xs font-semibold flex items-center justify-between gap-2 flex-wrap">
-  <span>Data snapshots (ZFS · <span class="font-mono font-normal">{live}</span>)</span>
-  <span class="flex gap-1">
-    <button type="button" class="btn btn-xs btn-outline" hx-post="/versioning/zfs/snapshot" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" title="zfs snapshot {live}@neo-data-…">Snapshot now</button>
-    <button type="button" class="btn btn-ghost btn-xs" hx-get="/versioning/zfs" hx-target="#{CARD_ID}" hx-swap="outerHTML">Refresh</button>
+        r##"<div id="{CARD_ID}" class="rounded-box border border-base-300 bg-base-100 overflow-hidden">
+<div class="flex items-center gap-3 px-3 sm:px-4 py-3 border-b border-base-300 flex-wrap">
+  <span class="w-9 h-9 shrink-0 rounded-xl bg-base-200 text-base-content/70 flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><path d="M4 8.5A1.5 1.5 0 015.5 7h2.3l1.5-2h5.4l1.5 2h2.3A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5v-9z"/><circle cx="12" cy="13" r="3.2"/></svg></span>
+  <div class="min-w-0 flex-1">
+    <h3 class="font-semibold text-sm sm:text-base">Data snapshots</h3>
+    <p class="text-xs text-base-content/60 truncate">ZFS · <span class="font-mono">{live}</span></p>
+  </div>
+  <span class="flex gap-1.5">
+    <button type="button" class="btn btn-ghost btn-sm" hx-get="/versioning/zfs" hx-target="#{CARD_ID}" hx-swap="outerHTML">Refresh</button>
+    <button type="button" class="btn btn-sm btn-soft btn-primary" hx-post="/versioning/zfs/snapshot" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" title="zfs snapshot {live}@neo-data-…">Snapshot now</button>
   </span>
 </div>
-<div class="p-2 space-y-2 text-sm">
-<div class="text-[11px] opacity-70 leading-snug">
+<div class="p-3 sm:p-4 space-y-3 text-sm">
+<div class="text-xs text-base-content/65 leading-relaxed">
   Restores <b>all Neo data</b> (appdata of every service, the configuration repo, and anything else on this dataset) by rebooting and swapping the dataset during boot.
   <b>Files only:</b> the NixOS system is not snapshotted and boots its default generation{cur}.
   Either run <i>Activate</i> afterwards to rebuild from the restored settings, or use <i>+ boot gen</i> to also boot the generation that was running when the snapshot was taken.
@@ -224,8 +228,8 @@ struct RowCtx<'a> {
 
 fn snapshot_table(title: &str, ds: &str, list: &[Snapshot], ctx: &RowCtx) -> String {
     let mut html = format!(
-        r#"<details class="rounded border border-base-300 bg-base-100"{open}>
-<summary class="cursor-pointer px-2 py-1 text-xs font-semibold flex items-center gap-2"><span>{title}</span><span class="font-mono font-normal opacity-50 text-[10px]">{ds}</span><span class="badge badge-xs badge-ghost">{n}</span></summary>"#,
+        r#"<details class="rounded-field border border-base-300 bg-base-100"{open}>
+<summary class="cursor-pointer px-3 py-2 text-xs font-semibold flex items-center gap-2"><span>{title}</span><span class="font-mono font-normal opacity-50 text-[10px]">{ds}</span><span class="badge badge-xs badge-ghost">{n}</span></summary>"#,
         open = if ds == ctx.live { " open" } else { "" },
         title = escape_html(title),
         ds = escape_html(ds),
@@ -369,7 +373,7 @@ fn schedule_reboot() {
 
 fn rebooting_card(msg: &str) -> String {
     format!(
-        r#"<div id="{CARD_ID}" class="border border-base-300 rounded p-3 space-y-2"><div role="alert" class="alert alert-warning text-sm"><span class="loading loading-spinner loading-sm"></span><span>{}</span></div><p class="text-xs opacity-70">The UI reconnects once the server is back. Check the result banner in this tab afterwards.</p></div>"#,
+        r#"<div id="{CARD_ID}" class="rounded-box border border-base-300 bg-base-100 p-4 space-y-2"><div role="alert" class="alert alert-warning text-sm"><span class="loading loading-spinner loading-sm"></span><span>{}</span></div><p class="text-xs opacity-70">The UI reconnects once the server is back. Check the result banner in this tab afterwards.</p></div>"#,
         escape_html(msg)
     )
 }

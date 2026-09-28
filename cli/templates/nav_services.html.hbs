@@ -40,7 +40,7 @@
 
 {{#each services}}
   <button
-    class="nav-btn svc-btn w-12 h-10 rounded-xl flex items-center justify-center text-base-content/80 hover:text-base-content"
+    class="nav-btn svc-btn w-12 h-11 rounded-xl flex-shrink-0 flex items-center justify-center text-base-content/80 hover:text-base-content"
     title="{{name}} (https://{{subdomain}}.{{domain}})"
     data-sub="{{subdomain}}"
     data-domain="{{domain}}"
@@ -55,7 +55,7 @@
       {{else}}
         <span class="text-3xl leading-none">⚙</span>
       {{/if}}
-      <span class="absolute -bottom-px -right-px text-[7px] font-black bg-base-100 text-base-content px-0.5 leading-none rounded-sm ring-1 ring-base-300/70 font-mono">
+      <span class="absolute -bottom-0.5 -right-1 text-[7px] font-bold bg-base-100 text-base-content px-0.5 py-px leading-none rounded ring-1 ring-base-content/15 font-mono">
         {{initials}}
       </span>
     </div>
