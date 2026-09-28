@@ -534,6 +534,14 @@ window.servicesGrid = function servicesGrid() {
   });
   document.body.addEventListener('htmx:oobAfterSwap', syncBarBusyIfActionBar);
 
+  // A WS OOB push can replace an element (e.g. #action-bar-dynamic) while its own
+  // hx-get is in flight; the late response would then target a detached node and
+  // throw inside htmx. Abort that request while the element is still attached.
+  document.body.addEventListener('htmx:oobBeforeSwap', function (evt) {
+    var t = evt.detail && evt.detail.target;
+    if (t && t.classList && t.classList.contains('htmx-request')) htmx.trigger(t, 'htmx:abort');
+  });
+
   // WS/OOB replaces #action-bar-dynamic; watch its parent so data-eval-busy
   // still folds into #nav-busy when htmx target events are sparse.
   (function observeEvalBusy() {
