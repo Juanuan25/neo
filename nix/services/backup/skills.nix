@@ -34,6 +34,7 @@
         ## Pitfalls
         - Root runs backup for source readability; key permissions matter
         - Excludes must be correct to avoid huge or incomplete backups
+        - Remote dirs are forced owner-writable (`--chmod=Du+w`); a failed delete on a read-only remote dir is chmod-ed over SSH and retried once
 
         ## Verification
         - Timer scheduled; last log shows success; remote listing OK

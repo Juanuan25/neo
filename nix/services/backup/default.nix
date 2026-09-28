@@ -26,9 +26,33 @@
           exit 1
         fi
 
+        # Du+w: remote dirs stay owner-writable. A read-only dir (e.g. copied out
+        # of /nix/store) that later becomes a symlink or file is otherwise stuck:
+        # rsync unlinks its contents without making it writable first.
+        run_rsync() {
+          ${pkgs.rsync}/bin/rsync -avz --delete --chmod=Du+w -e "${pkgs.openssh}/bin/ssh ${sshOptions}" ${excludes} "$SOURCE_DIR" "$DEST_DIR"
+        }
+
+        # Remotes already holding such a read-only dir: make it writable, retry once.
+        # Logged paths are relative to remotePath.
+        unstick_remote() {
+          mapfile -t stuck < <(
+            ${pkgs.gnused}/bin/sed -n 's/^rsync: \[generator\] delete_file: unlink(\(.*\)) failed: Permission denied (13)$/\1/p' "$LOG_FILE" \
+              | while IFS= read -r f; do dirname -- "$f"; done | sort -u
+          )
+          [ "''${#stuck[@]}" -gt 0 ] || return 1
+          args=()
+          for d in "''${stuck[@]}"; do
+            args+=("$(printf '%q' "${optionalString (cfg.remotePath != "") "${cfg.remotePath}/"}$d")")
+          done
+          echo "Making read-only remote dirs writable: ''${stuck[*]}"
+          ${pkgs.openssh}/bin/ssh ${sshOptions} "${cfg.user}@${cfg.host}" chmod u+w "''${args[@]}"
+        }
+
         echo "Starting backup to ${cfg.host} at $(date)"
 
-        if ${pkgs.rsync}/bin/rsync -avz --delete -e "${pkgs.openssh}/bin/ssh ${sshOptions}" ${excludes} "$SOURCE_DIR" "$DEST_DIR" > "$LOG_FILE" 2>&1; then
+        if run_rsync > "$LOG_FILE" 2>&1 \
+          || { unstick_remote && run_rsync >> "$LOG_FILE" 2>&1; }; then
           echo "Backup completed successfully to ${cfg.host} at $(date)"
           echo "Backup details written to $LOG_FILE"
         else
