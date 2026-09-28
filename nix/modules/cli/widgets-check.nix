@@ -6,16 +6,13 @@
         nativeBuildInputs = [pkgs.nodejs];
       } ''
         set -euo pipefail
-        mkdir -p cli/static cli/templates/options
-        cp ${../../../cli/static/option_form.js} cli/static/option_form.js
+        mkdir -p cli/templates/options
+        # Mirror `just test-widgets`: all of cli/static (widget hosts + standalone modules and their tests).
+        cp -r ${../../../cli/static} cli/static
+        chmod -R u+w cli/static
         cp ${../../../cli/templates/configuration.html.hbs} cli/templates/configuration.html.hbs
         cp -r ${../../../cli/templates/options/widgets} cli/templates/options/widgets
-        # Shared unit-health summarizer (option pane + services status dots).
-        cp ${../../../cli/static/service_status.js} cli/static/service_status.js
-        cp ${../../../cli/static/service_status.test.js} cli/static/service_status.test.js
-        (cd cli/static && node --test service_status.test.js)
-        cd cli/templates/options/widgets
-        node --test *.test.js test/*.test.js
+        node --test cli/templates/options/widgets/*.test.js cli/templates/options/widgets/test/*.test.js cli/static/*.test.js
         touch "$out"
       '';
   };
