@@ -194,3 +194,103 @@ pub async fn ws_status(ws: WebSocket, config: &State<Arc<AppConfig>>) -> Channel
         })
     })
 }
+
+/// Live output of a background op (activation / update / repair / genswitch).
+///
+/// Streams JSON messages (see [`crate::commands::web::ops::monitor`]): state on change,
+/// appended log bytes, `end` once the op is terminal and drained. `offset` resumes the
+/// log after a reconnect — neo-web restarts during a switch, the op keeps running in its
+/// own systemd unit and writes to disk, and the client picks up where it left off.
+#[get("/ws/op/<id>?<offset>")]
+pub fn ws_op(ws: WebSocket, id: &str, offset: Option<u64>) -> Channel<'static> {
+    use crate::commands::web::ops::monitor::{op_id_ok, read_state_message, LogCursor};
+    use crate::commands::web::ops::store::log_path;
+
+    let id = id.to_string();
+    ws.channel(move |mut stream| {
+        Box::pin(async move {
+            use rocket::futures::{SinkExt, StreamExt};
+
+            async fn send<S>(stream: &mut S, v: &serde_json::Value) -> bool
+            where
+                S: rocket::futures::Sink<Message> + Unpin,
+            {
+                stream.send(Message::Text(v.to_string())).await.is_ok()
+            }
+
+            if !op_id_ok(&id) {
+                let _ = send(
+                    &mut stream,
+                    &serde_json::json!({"t": "error", "message": "invalid operation id"}),
+                )
+                .await;
+                return Ok(());
+            }
+
+            let log = log_path(&id);
+            let mut cursor = LogCursor::new(offset.unwrap_or(0));
+            let mut last_raw = String::new();
+            // Ticks seen since the op went terminal: give the writer a moment to flush
+            // trailing log lines before the final drain.
+            let mut terminal_ticks = 0u32;
+            let mut since_ping = 0u32;
+            let mut tick = tokio::time::interval(Duration::from_millis(200));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+            loop {
+                tokio::select! {
+                    client_msg = stream.next() => {
+                        match client_msg {
+                            Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+                            Some(Ok(_)) => {}
+                        }
+                    }
+                    _ = tick.tick() => {
+                        let terminal = match read_state_message(&id) {
+                            Some((raw, msg)) => {
+                                let done = msg["status"] != "in_progress";
+                                if raw != last_raw {
+                                    last_raw = raw;
+                                    if !send(&mut stream, &msg).await {
+                                        break;
+                                    }
+                                }
+                                done
+                            }
+                            None => {
+                                if last_raw.is_empty() {
+                                    let _ = send(&mut stream, &serde_json::json!({
+                                        "t": "state", "id": id, "status": "missing",
+                                    })).await;
+                                }
+                                true
+                            }
+                        };
+                        if terminal {
+                            terminal_ticks += 1;
+                        }
+                        let flush = terminal_ticks >= 3;
+                        for m in cursor.read(&log, flush) {
+                            if !send(&mut stream, &m).await {
+                                return Ok(());
+                            }
+                        }
+                        if flush {
+                            let _ = send(&mut stream, &serde_json::json!({"t": "end"})).await;
+                            break;
+                        }
+                        // Keep idle proxies (SWAG) from timing out long silent builds.
+                        since_ping += 1;
+                        if since_ping >= 100 {
+                            since_ping = 0;
+                            if !send(&mut stream, &serde_json::json!({"t": "ping"})).await {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })
+    })
+}

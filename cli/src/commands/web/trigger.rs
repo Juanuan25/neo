@@ -137,7 +137,7 @@ pub fn trigger_update() -> RawHtml<String> {
         ));
     }
     let op = trigger_oneshot(OneshotKind::Update);
-    RawHtml(activation::build_update_monitor_fragment(op.id()))
+    RawHtml(activation::build_monitor_fragment(op.id()))
 }
 
 /// Detached generation switch/boot. Must not run in the neo-web process:

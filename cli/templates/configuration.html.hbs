@@ -209,24 +209,6 @@
       <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
 
-    <dialog id="activation-success" class="modal modal-bottom sm:modal-middle">
-      <div class="modal-box max-w-3xl">
-        <div class="flex items-center gap-3 mb-3">
-          <span class="w-9 h-9 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
-          </span>
-          <h3 class="font-semibold text-lg">Activation complete</h3>
-        </div>
-        <div id="activation-success-body" class="max-h-[50vh] overflow-auto text-sm"></div>
-        <div class="modal-action">
-          <form method="dialog" class="flex flex-nowrap items-center gap-2">
-            <button type="submit" class="btn btn-sm btn-ghost">Close</button>
-            <button type="button" onclick="confirmActivationReload()" class="btn btn-sm btn-success">Confirm &amp; reload</button>
-          </form>
-        </div>
-      </div>
-    </dialog>
-
     <dialog id="logs-dialog" class="modal">
       <div class="modal-box w-11/12 max-w-5xl p-0 overflow-hidden">
         <div class="flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-base-300">
@@ -262,6 +244,7 @@
     </dialog>
 
     <script src="/static/service_status.js"></script>
+    <script src="/static/op_monitor.js"></script>
     <script src="/static/configuration.js"></script>
     <script src="/static/nav_progress.js"></script>
   </body>

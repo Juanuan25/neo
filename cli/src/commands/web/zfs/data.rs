@@ -14,10 +14,10 @@ use std::time::Duration;
 use tokio::process::Command as AsyncCommand;
 
 use super::super::util::{escape_attr, escape_html, sudo_cmd};
+use super::render::{self, BTN_SECONDARY};
 use super::{
-    create_snapshot, dataset_name_ok, format_age, format_epoch_utc, get_property, human_bytes,
-    inherit_property, list_filesystems, list_snapshots, now_epoch, now_ts, set_property,
-    snapshot_kind, snapshot_name_ok, Snapshot,
+    create_snapshot, dataset_name_ok, format_epoch_utc, get_property, inherit_property,
+    list_filesystems, list_snapshots, now_epoch, now_ts, set_property, snapshot_name_ok, Snapshot,
 };
 use crate::utils::{
     current_generation_number, running_generation_number, switch_system_generation, GenerationMode,
@@ -143,23 +143,17 @@ pub async fn render_card(notice: Option<(&'static str, String)>) -> String {
 <div class="flex flex-wrap items-center gap-2">
   <p class="text-xs sm:text-sm text-base-content/60 min-w-0 flex-1">Snapshots of all Neo data — every service's app data and the configuration — on <span class="font-mono">{live}</span>.</p>
   <span class="flex gap-1.5">
-    <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" hx-get="/versioning/zfs" hx-target="#{CARD_ID}" hx-swap="outerHTML">Refresh</button>
+    <button type="button" class="{BTN_SECONDARY}" hx-get="/versioning/zfs" hx-target="#{CARD_ID}" hx-swap="outerHTML">Refresh</button>
     <button type="button" class="btn btn-sm btn-primary" hx-post="/versioning/zfs/snapshot" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" title="zfs snapshot {live}@neo-data-…">Snapshot now</button>
   </span>
 </div>
-<details class="group rounded-box border border-base-300 bg-base-100 text-xs text-base-content/70">
-  <summary class="cursor-pointer list-none px-3 sm:px-4 py-2.5 flex items-center gap-2 font-medium text-base-content/80">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5 transition-transform group-open:rotate-90" aria-hidden="true"><path fill-rule="evenodd" d="M7.2 14.8a.75.75 0 010-1.06L10.94 10 7.2 6.26a.75.75 0 111.06-1.06l4.27 4.27a.75.75 0 010 1.06L8.26 14.8a.75.75 0 01-1.06 0z" clip-rule="evenodd"/></svg>
-    How restoring works
-  </summary>
-  <ul class="px-3 sm:px-4 pb-3 pl-8 sm:pl-9 space-y-1 list-disc leading-relaxed">
-    <li>The server <b>reboots</b> and swaps the data during boot; services are down until it is back.</li>
-    <li><b>Files only:</b> the NixOS system is not part of the snapshot and boots its default generation{cur}. Activate afterwards to rebuild from the restored settings, or pick <i>Restore + boot gen</i> to also boot the generation that was running back then.</li>
-    <li>The replaced data is kept as <i>Before restore</i> below, so a restore can be undone.</li>
-  </ul>
-</details>"##,
+{how}"##,
         live = escape_html(&live),
-        cur = boot_gen.map(|g| format!(" ({g})")).unwrap_or_default(),
+        how = render::how_it_works(&[
+            "The server <b>reboots</b> and swaps the data during boot; services are down until it is back.",
+            &format!("<b>Files only:</b> the NixOS system is not part of the snapshot and boots its default generation{}. Activate afterwards to rebuild from the restored settings, or pick <i>Restore + boot gen</i> to also boot the generation that was running back then.", boot_gen.map(|g| format!(" ({g})")).unwrap_or_default()),
+            "The replaced data is kept as <i>Before restore</i> below, so a restore can be undone.",
+        ]),
     );
 
     for b in &banners {
@@ -227,39 +221,16 @@ struct RowCtx<'a> {
 }
 
 fn snapshot_table(title: &str, ds: &str, list: &[Snapshot], ctx: &RowCtx) -> String {
-    let mut html = format!(
-        r#"<details class="group rounded-box border border-base-300 bg-base-100 overflow-hidden"{open}>
-<summary class="cursor-pointer list-none px-3 sm:px-4 py-2.5 flex items-center gap-2 border-b border-transparent group-open:border-base-300">
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5 shrink-0 text-base-content/50 transition-transform group-open:rotate-90" aria-hidden="true"><path fill-rule="evenodd" d="M7.2 14.8a.75.75 0 010-1.06L10.94 10 7.2 6.26a.75.75 0 111.06-1.06l4.27 4.27a.75.75 0 010 1.06L8.26 14.8a.75.75 0 01-1.06 0z" clip-rule="evenodd"/></svg>
-<span class="text-sm font-semibold">{title}</span><span class="text-xs text-base-content/40 tabular-nums">{n}</span><span class="font-mono text-[10px] text-base-content/40 ml-auto truncate hidden sm:inline">{ds}</span></summary>"#,
-        open = if ds == ctx.live { " open" } else { "" },
-        title = escape_html(title),
-        ds = escape_html(ds),
-        n = list.len(),
-    );
-    if list.is_empty() {
-        html.push_str(
-            r#"<div class="px-4 py-6 text-center text-xs text-base-content/50">No snapshots yet.</div>"#,
-        );
-    } else {
-        html.push_str(r#"<ul class="divide-y divide-base-300/70 max-h-[28rem] overflow-auto">"#);
-        for s in list.iter().rev().take(MAX_ROWS) {
-            html.push_str(&data_row(s, ctx));
-        }
-        html.push_str("</ul>");
-        if list.len() > MAX_ROWS {
-            html.push_str(&format!(
-                r#"<div class="px-4 py-2 text-[11px] text-base-content/50 border-t border-base-300">{MAX_ROWS} newest of {} shown.</div>"#,
-                list.len()
-            ));
-        }
-    }
-    html.push_str("</details>");
-    html
+    let rows: Vec<String> = list
+        .iter()
+        .rev()
+        .take(MAX_ROWS)
+        .map(|s| data_row(s, ctx))
+        .collect();
+    render::snapshot_list(title, ds, ds == ctx.live, list.len(), &rows, MAX_ROWS)
 }
 
 fn data_row(s: &Snapshot, ctx: &RowCtx) -> String {
-    let (kind, badge) = snapshot_kind(&s.name);
     let when = format_epoch_utc(s.creation);
     let gen = ctx.timeline.at(s.creation);
 
@@ -289,7 +260,7 @@ fn data_row(s: &Snapshot, ctx: &RowCtx) -> String {
                 .unwrap_or_else(|| "(current)".into()),
         );
         actions.push_str(&format!(
-            r##"<button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" hx-post="/versioning/zfs/restore?{q}" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data only; boot the default system generation">Restore</button>"##,
+            r##"<button type="button" class="{BTN_SECONDARY}" hx-post="/versioning/zfs/restore?{q}" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data only; boot the default system generation">Restore</button>"##,
             c = escape_attr(&data_only),
         ));
         if let Some(g) = gen.filter(|g| Some(*g) != ctx.boot_gen) {
@@ -297,7 +268,7 @@ fn data_row(s: &Snapshot, ctx: &RowCtx) -> String {
                 "{base_warning}\n• The boot default is set to system generation {g} (running when the snapshot was taken) before the reboot."
             );
             actions.push_str(&format!(
-                r##"<button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" hx-post="/versioning/zfs/restore?{q}&gen={g}" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data and boot system generation {g}">Restore + boot gen {g}</button>"##,
+                r##"<button type="button" class="{BTN_SECONDARY}" hx-post="/versioning/zfs/restore?{q}&gen={g}" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data and boot system generation {g}">Restore + boot gen {g}</button>"##,
                 c = escape_attr(&with_gen),
             ));
         }
@@ -313,20 +284,7 @@ fn data_row(s: &Snapshot, ctx: &RowCtx) -> String {
         None => r#" · <span title="The system running at that time has no surviving generation">generation ?</span>"#.to_string(),
     };
 
-    format!(
-        r#"<li class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5">
-<div class="flex items-center gap-3 min-w-0 flex-1">
-<span class="w-9 h-9 shrink-0 rounded-xl bg-base-200 text-base-content/60 flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true"><path d="M4 8.5A1.5 1.5 0 015.5 7h2.3l1.5-2h5.4l1.5 2h2.3A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5v-9z"/><circle cx="12" cy="13" r="3.2"/></svg></span>
-<div class="min-w-0"><div class="flex items-center gap-1.5 flex-wrap"><span class="text-sm font-semibold tabular-nums" title="{full}">{when}</span><span class="badge badge-xs {badge}">{kind}</span></div>
-<div class="text-xs text-base-content/55 truncate">{age} · {used}{gen_cell}</div></div>
-</div>
-<div class="flex flex-wrap gap-1.5 sm:justify-end pl-12 sm:pl-0">{actions}</div></li>"#,
-        kind = escape_html(&kind),
-        full = escape_attr(&s.full),
-        when = escape_html(&when),
-        age = format_age(ctx.now, s.creation),
-        used = human_bytes(s.used),
-    )
+    render::snapshot_row(s, ctx.now, &gen_cell, &actions, false)
 }
 
 fn ok_notice(msg: &str) -> Option<(&'static str, String)> {

@@ -55,8 +55,10 @@
       {{else}}
         <span class="text-3xl leading-none">⚙</span>
       {{/if}}
-      {{!-- Runtime health; painted by service_status.js (one batched request). --}}
-      <span class="neo-unit-dot absolute -top-0.5 -right-1 ring-2 ring-base-200"
+      {{!-- Runtime health; painted by service_status.js (one batched request).
+           Only surfaces problems (failed / stopped / degraded / changing); a healthy
+           service shows nothing. The green top-right dot means "loaded" (warm iframe). --}}
+      <span class="neo-unit-alert"
             data-service-status="{{name}}"
             data-units="{{#each units}}{{this}}{{#unless @last}} {{/unless}}{{/each}}"
             data-timers="{{#each timers}}{{this}}{{#unless @last}} {{/unless}}{{/each}}"

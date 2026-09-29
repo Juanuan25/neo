@@ -20,16 +20,17 @@ use super::super::units::{
 use super::super::util::{
     escape_attr, escape_html, status_err, status_ok, status_pulling, status_slot_oob, sudo_cmd,
 };
+use super::render::{self, BTN_SECONDARY};
 use super::{
-    create_snapshot, dataset_for_path, format_age, format_epoch_utc, human_bytes, list_snapshots,
-    now_epoch, now_ts, rsync_bin, snapshot_has_path, snapshot_kind, zfs_mounts, Snapshot, ZfsMount,
+    create_snapshot, dataset_for_path, format_epoch_utc, list_snapshots, now_epoch, now_ts,
+    rsync_bin, snapshot_has_path, zfs_mounts, Snapshot, ZfsMount,
 };
 
 /// Units the restore must never stop: stopping them kills the web UI running the job.
 /// Same exclusions as the service targets (nix/lib/service-targets.nix).
 const NEVER_STOP: &[&str] = &["neo-web", "neo-bootstrap"];
 
-const OUT_CLASSES: &str = "snapshot-out text-[10px] flex-shrink-0 max-w-[22rem] truncate";
+const OUT_CLASSES: &str = "snapshot-out text-xs max-w-full truncate empty:hidden";
 
 /// Most rows shown in the pane (newest first).
 const MAX_ROWS: usize = 60;
@@ -60,6 +61,7 @@ fn prerestore_snapshot_name(service: &str) -> String {
 }
 
 /// The whole snapshots card for a service. `oob` wraps it for a WS push.
+/// Same layout and rows as the versioning tab's data snapshots ([`super::render`]).
 pub async fn render_service_snapshots(
     service: &str,
     appdata: &str,
@@ -68,19 +70,21 @@ pub async fn render_service_snapshots(
 ) -> String {
     let svc = escape_html(service);
     let oob_attr = if oob { r#" hx-swap-oob="true""# } else { "" };
-    let open = format!(
-        r#"<div id="snapshots-{svc}" class="mb-2 sm:mb-3 p-1.5 sm:p-2 bg-base-200/60 rounded border border-base-300"{oob_attr}>"#
-    );
+    let open = format!(r#"<div id="snapshots-{svc}" class="space-y-3"{oob_attr}>"#);
+    let unavailable = |msg: &str| {
+        format!(
+            r#"{open}<div class="rounded-box border border-base-300 bg-base-100 px-4 py-6 text-center text-xs text-base-content/50">{}</div></div>"#,
+            escape_html(msg)
+        )
+    };
 
     let Some(loc) = locate_appdata(appdata) else {
-        return format!(
-            r#"{open}<div class="text-xs font-semibold flex items-center gap-2"><span>Snapshots</span><span class="text-[10px] font-normal opacity-50">appdata is not on a ZFS dataset</span></div></div>"#
+        return unavailable(
+            "Snapshots are unavailable: this service's app data is not on a ZFS dataset.",
         );
     };
     if loc.rel.is_empty() {
-        return format!(
-            r#"{open}<div class="text-xs font-semibold flex items-center gap-2"><span>Snapshots</span><span class="text-[10px] font-normal opacity-50">appdata is a whole dataset; use the versioning tab</span></div></div>"#
-        );
+        return unavailable("This service's app data is a whole dataset — use Data snapshots in the versioning tab.");
     }
 
     let snaps = list_snapshots(&loc.mount.dataset, false).await;
@@ -93,42 +97,46 @@ pub async fn render_service_snapshots(
 
     let mut html = open;
     html.push_str(&format!(
-        r##"<div class="text-xs font-semibold mb-1 flex items-center gap-2 flex-wrap">
-  <span>Snapshots</span>
-  <span class="text-[10px] font-normal opacity-50 font-mono truncate max-w-[16rem]" title="ZFS dataset holding {appdata_attr}">{ds}</span>
-  <div class="flex-1"></div>
-  <button type="button" class="btn btn-xs btn-outline{dis_cls}"{dis_attr} hx-post="/service/{svc}/snapshots/create" hx-swap="none" hx-disabled-elt="this" title="zfs snapshot {ds}@neo-snap-{svc}-…">Snapshot now</button>
-  <button type="button" class="btn btn-xs btn-ghost" hx-get="/service/{svc}/snapshots" hx-target="#snapshots-{svc}" hx-swap="outerHTML" title="Reload the snapshot list">↻</button>
-  <div id="snapshot-out-{svc}" class="{OUT_CLASSES}" title=""></div>
+        r##"<div class="flex flex-wrap items-center gap-2">
+  <p class="text-xs sm:text-sm text-base-content/60 min-w-0 flex-1">Snapshots of this service's app data <span class="font-mono break-all">{appdata_html}</span>.</p>
+  <span class="flex gap-1.5">
+    <button type="button" class="{BTN_SECONDARY}" hx-get="/service/{svc}/snapshots" hx-target="#snapshots-{svc}" hx-swap="outerHTML">Refresh</button>
+    <button type="button" class="btn btn-sm btn-primary{dis_cls}"{dis_attr} hx-post="/service/{svc}/snapshots/create" hx-swap="none" hx-disabled-elt="this" title="zfs snapshot {ds}@neo-snap-{svc}-…">Snapshot now</button>
+  </span>
 </div>
-<p class="text-[10px] opacity-60 mb-1.5">Restore replaces <span class="font-mono">{appdata_html}</span> with its copy from the snapshot. The service is stopped while files are copied, and a <span class="badge badge-warning badge-xs">pre-restore</span> snapshot is taken first so you can go back.</p>"##,
-        appdata_attr = escape_attr(appdata),
+<div id="snapshot-out-{svc}" class="{OUT_CLASSES}" title=""></div>
+{how}"##,
         appdata_html = escape_html(appdata),
+        how = render::how_it_works(&[
+            "The service is <b>stopped</b> while its app data folder is copied back from the snapshot, then started again.",
+            "Only this service's folder is replaced; other services and the activated system are not touched.",
+            "A <span class=\"badge badge-warning badge-xs\">pre-restore</span> snapshot is taken first, so a restore can be undone from this list.",
+        ]),
     ));
 
     match snaps {
         Err(e) => {
             html.push_str(&format!(
-                r#"<div class="text-[11px] text-error">{}</div>"#,
+                r#"<div role="alert" class="alert alert-soft alert-error py-2 px-3 text-xs">{}</div>"#,
                 escape_html(&e)
             ));
         }
-        Ok(list) if list.is_empty() => {
-            html.push_str(r#"<div class="text-[11px] opacity-50">No snapshots yet.</div>"#);
-        }
         Ok(list) => {
             let now = now_epoch();
-            let total = list.len();
-            html.push_str(r#"<div class="max-h-72 overflow-auto rounded border border-base-300 bg-base-100"><table class="table table-xs"><tbody>"#);
-            for s in list.iter().rev().take(MAX_ROWS) {
-                html.push_str(&snapshot_row(service, appdata, &loc, s, now, busy));
-            }
-            html.push_str("</tbody></table></div>");
-            if total > MAX_ROWS {
-                html.push_str(&format!(
-                    r#"<div class="text-[10px] opacity-50 mt-1">{MAX_ROWS} newest of {total} snapshots shown.</div>"#
-                ));
-            }
+            let rows: Vec<String> = list
+                .iter()
+                .rev()
+                .take(MAX_ROWS)
+                .map(|s| snapshot_row(service, appdata, &loc, s, now, busy))
+                .collect();
+            html.push_str(&render::snapshot_list(
+                "Snapshots",
+                &loc.mount.dataset,
+                true,
+                list.len(),
+                &rows,
+                MAX_ROWS,
+            ));
         }
     }
     html.push_str("</div>");
@@ -143,7 +151,6 @@ fn snapshot_row(
     now: i64,
     busy: bool,
 ) -> String {
-    let (kind, badge) = snapshot_kind(&s.name);
     let when = format_epoch_utc(s.creation);
     let confirm = format!(
         "Restore {service} appdata to snapshot {name} ({when})?\n\n\
@@ -155,11 +162,11 @@ fn snapshot_row(
         ds = loc.mount.dataset,
     );
     let action = if busy {
-        r#"<button type="button" class="btn btn-xs btn-disabled" disabled>Restore</button>"#
+        r#"<button type="button" class="btn btn-sm btn-disabled" disabled title="Another app data operation is running">Restore</button>"#
             .to_string()
     } else {
         format!(
-            r#"<button type="button" class="btn btn-xs btn-warning" hx-post="/service/{svc}/snapshots/restore?snap={snap_q}" hx-swap="none" hx-disabled-elt="this" hx-confirm="{confirm}">Restore</button>"#,
+            r#"<button type="button" class="{BTN_SECONDARY}" hx-post="/service/{svc}/snapshots/restore?snap={snap_q}" hx-swap="none" hx-disabled-elt="this" hx-confirm="{confirm}" title="Replace the app data folder with this snapshot">Restore</button>"#,
             svc = escape_attr(service),
             snap_q = escape_attr(&urlencode(&s.name)),
             confirm = escape_attr(&confirm),
@@ -167,15 +174,7 @@ fn snapshot_row(
     };
     let manual_mine = s.name.starts_with(&format!("neo-snap-{service}-"))
         || s.name.starts_with(&format!("neo-prerestore-{service}-"));
-    let row_cls = if manual_mine { " bg-info/5" } else { "" };
-    format!(
-        r#"<tr class="hover{row_cls}"><td class="w-0 whitespace-nowrap"><span class="badge badge-xs {badge}">{kind}</span></td><td class="font-mono text-[11px] whitespace-nowrap" title="{full}">{when}</td><td class="text-[10px] opacity-60 whitespace-nowrap">{age}</td><td class="text-[10px] opacity-50 whitespace-nowrap hidden sm:table-cell" title="space held only by this snapshot (whole dataset)">{used}</td><td class="w-0 text-right">{action}</td></tr>"#,
-        kind = escape_html(&kind),
-        full = escape_attr(&s.full),
-        when = escape_html(&when),
-        age = format_age(now, s.creation),
-        used = human_bytes(s.used),
-    )
+    render::snapshot_row(s, now, "", &action, manual_mine)
 }
 
 /// Minimal query escaping for snapshot names (validated charset plus `:`).

@@ -29,7 +29,8 @@
   position: relative;
 }
 
-/* Warm (already loaded) indicator on sidebar items */
+/* Warm (loaded in the iframe cache) indicator on sidebar items — top-right.
+   Runtime problems use .neo-unit-alert (top-left) so the two never overlap. */
 .svc-btn.warm::after {
   content: '';
   position: absolute;
@@ -42,6 +43,55 @@
   box-shadow: 0 0 0 2px var(--color-base-200);
   pointer-events: none;
   z-index: 10;
+}
+
+/* Runtime problem badge (top-left of the service icon). Painted by
+   service_status.js via data-state; healthy / unknown / not deployed stay hidden
+   so the sidebar only draws attention when something is wrong. */
+.neo-unit-alert {
+  position: absolute;
+  top: -5px;
+  left: -7px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  font: 800 10px/1 ui-sans-serif, system-ui, sans-serif;
+  color: #fff;
+  box-shadow: 0 0 0 2px var(--color-base-200);
+  pointer-events: auto;
+  z-index: 11;
+}
+.neo-unit-alert::before { content: '!'; }
+.neo-unit-alert[data-state="failed"],
+.neo-unit-alert[data-state="down"] {
+  display: flex;
+  background-color: var(--color-error);
+  color: var(--color-error-content);
+}
+.neo-unit-alert[data-state="partial"] {
+  display: flex;
+  background-color: var(--color-warning);
+  color: var(--color-warning-content);
+}
+/* Starting / stopping / restarting: quiet pulse, no "!" */
+.neo-unit-alert[data-state="changing"] {
+  display: flex;
+  top: -2px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  background-color: var(--color-info);
+  animation: neo-unit-alert-pulse 1.4s ease-in-out infinite;
+}
+.neo-unit-alert[data-state="changing"]::before { content: none; }
+@keyframes neo-unit-alert-pulse {
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .neo-unit-alert { animation: none !important; }
 }
 
 /* Mobile sidebar drawer: keep above viewer chrome when open */

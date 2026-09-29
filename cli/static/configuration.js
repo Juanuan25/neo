@@ -713,40 +713,19 @@ window.servicesGrid = function servicesGrid() {
     } catch (e) {}
   });
 
-  function resume() {
-    try {
-      const raw = localStorage.getItem('neo.pendingActivation');
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      if (data && data.id) {
-        const modal = document.getElementById('changes-modal');
-        if (modal) modal.showModal();
-        htmx.ajax('GET', '/activation/monitor/' + encodeURIComponent(data.id), {
-          target: '#changes-body',
-          swap: 'innerHTML',
-        });
-      }
-    } catch (e) {}
-  }
-  // Only on full page load — never on htmx:afterSettle (status/log polls settle too and
-  // would re-fetch the monitor in a loop while neo.pendingActivation is set).
+  // Only on full page load: reopen the op monitor that was running before a reload.
   document.addEventListener('DOMContentLoaded', function () {
-    resume();
+    if (window.NeoOpMonitor) window.NeoOpMonitor.resume(window);
     updateStickyBarsFuse();
   });
 
-  /** Log panel ids used by activation / update / repair monitors. */
-  var MONITOR_LOG_IDS = { 'act-log': 1, 'update-log': 1, 'repair-log': 1 };
-
   /**
-   * Tear down monitor HTMX polls. Closing the dialog used to leave #changes-body
-   * with every-1s status/log elements still in the DOM (and still requesting).
-   * Completion is already pushed via the action-bar WebSocket.
+   * Empty the shared dialog on close. Op monitors (static/op_monitor.js) close
+   * their WebSocket once their element leaves the DOM.
    */
   function clearChangesMonitor() {
     var body = document.getElementById('changes-body');
     if (!body) return;
-    // Removing nodes cancels HTMX intervals bound to them.
     body.innerHTML = '';
   }
 
@@ -754,56 +733,6 @@ window.servicesGrid = function servicesGrid() {
   if (changesModal) {
     changesModal.addEventListener('close', clearChangesMonitor);
   }
-
-  document.body.addEventListener('htmx:beforeSwap', function (e) {
-    var t = e.detail && e.detail.target;
-    if (t && MONITOR_LOG_IDS[t.id]) {
-      t.dataset.atBottom =
-        t.scrollTop + t.clientHeight >= t.scrollHeight - 8 ? '1' : '';
-    }
-  });
-  document.body.addEventListener('htmx:afterSwap', function (e) {
-    var t = e.detail && e.detail.target;
-    if (t && MONITOR_LOG_IDS[t.id] && t.dataset.atBottom) {
-      t.scrollTop = t.scrollHeight;
-    }
-  });
-
-  window.openActivationSuccess = function (btn) {
-    var mon = btn && btn.closest ? btn.closest('#activation-monitor') : null;
-    var d = document.getElementById('activation-success');
-    var b = document.getElementById('activation-success-body');
-    if (!mon || !d || !b) return;
-    var clone = mon.cloneNode(true);
-    var actions = clone.querySelectorAll('[data-dialog-actions]');
-    for (var i = 0; i < actions.length; i++) {
-      actions[i].remove();
-    }
-    // Never carry live hx polls into the success dialog.
-    var hxEls = clone.querySelectorAll('[hx-get], [hx-trigger]');
-    for (var j = 0; j < hxEls.length; j++) {
-      hxEls[j].removeAttribute('hx-get');
-      hxEls[j].removeAttribute('hx-trigger');
-      hxEls[j].removeAttribute('hx-swap');
-    }
-    b.innerHTML = clone.innerHTML;
-    try {
-      localStorage.removeItem('neo.pendingActivation');
-    } catch (e) {}
-    var cm = document.getElementById('changes-modal');
-    if (cm) cm.close(); // also clearChangesMonitor via close listener
-    d.showModal();
-  };
-  window.confirmActivationReload = function () {
-    try {
-      localStorage.removeItem('neo.pendingActivation');
-    } catch (e) {}
-    var as = document.getElementById('activation-success');
-    var cm = document.getElementById('changes-modal');
-    if (as) as.close();
-    if (cm) cm.close();
-    window.location.reload();
-  };
 
   // Live logs dialog helpers (EventSource for SSE from /sse/logs/<unit>)
   window.currentLogSource = null;

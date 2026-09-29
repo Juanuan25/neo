@@ -138,19 +138,24 @@
       </div>
     </div>
 
-    {{!-- Used by store-repair progress from the nav error banner. --}}
-    <dialog id="changes-modal" class="modal">
-      <div class="modal-box max-w-2xl">
-        <h3 id="changes-modal-title" class="font-semibold text-lg">Nix store repair</h3>
-        <div id="changes-body" class="py-2"></div>
-        <div class="modal-action">
-          <form method="dialog"><button class="btn btn-sm">Close</button></form>
+    {{!-- Store repair / update progress from the nav error banner (static/op_monitor.js). --}}
+    <dialog id="changes-modal" class="modal modal-bottom sm:modal-middle">
+      <div class="modal-box max-w-4xl p-0 flex flex-col max-h-[85dvh]">
+        <div class="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-base-300">
+          <h3 id="changes-modal-title" class="font-semibold text-lg min-w-0 truncate">Nix store repair</h3>
+          <form method="dialog">
+            <button type="submit" class="btn btn-sm btn-ghost btn-square" aria-label="Close">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5" aria-hidden="true"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>
+            </button>
+          </form>
         </div>
+        <div id="changes-body" class="px-4 sm:px-6 py-4 overflow-auto"></div>
       </div>
       <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
 
     <script src="/static/service_status.js"></script>
+    <script src="/static/op_monitor.js"></script>
     <script src="/static/neo.js"></script>
   </body>
 </html>

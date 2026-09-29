@@ -5,7 +5,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::commands::web::util::{activation_id_ok, repair_id_ok};
 use crate::utils::ops::{self, append_log as ops_append_log, write_op_state};
 
 pub fn ops_dir() -> PathBuf {
@@ -18,31 +17,6 @@ pub fn state_path(id: &str) -> PathBuf {
 
 pub fn log_path(id: &str) -> PathBuf {
     ops::log_path(id)
-}
-
-fn id_ok(id: &str) -> bool {
-    activation_id_ok(id) || repair_id_ok(id)
-}
-
-pub fn load_state(id: &str) -> Option<serde_json::Value> {
-    if !id_ok(id) {
-        return None;
-    }
-    let s = fs::read_to_string(state_path(id)).ok()?;
-    serde_json::from_str(&s).ok()
-}
-
-pub fn load_log_tail(id: &str, n: usize) -> String {
-    if !id_ok(id) {
-        return "(invalid id)".to_string();
-    }
-    let p = log_path(id);
-    if let Ok(content) = fs::read_to_string(&p) {
-        let lines: Vec<&str> = content.lines().collect();
-        let start = if lines.len() > n { lines.len() - n } else { 0 };
-        return lines[start..].join("\n");
-    }
-    "(no log yet)".to_string()
 }
 
 /// Write op state (thin wrapper over shared [`write_op_state`]).
@@ -142,30 +116,4 @@ pub fn gc_old_ops() {
             let _ = fs::remove_file(old.path());
         }
     }
-}
-
-/// Read common status fields from an op state document.
-pub fn state_fields(id: &str) -> (String, String, String, String) {
-    let st = load_state(id);
-    let status = st
-        .as_ref()
-        .and_then(|v| v.get("status").and_then(|s| s.as_str()))
-        .unwrap_or("unknown")
-        .to_string();
-    let phase = st
-        .as_ref()
-        .and_then(|v| v.get("phase").and_then(|s| s.as_str()))
-        .unwrap_or("")
-        .to_string();
-    let branch = st
-        .as_ref()
-        .and_then(|v| v.get("branch").and_then(|s| s.as_str()))
-        .unwrap_or("")
-        .to_string();
-    let err = st
-        .as_ref()
-        .and_then(|v| v.get("error").and_then(|s| s.as_str()))
-        .unwrap_or("")
-        .to_string();
-    (status, phase, branch, err)
 }

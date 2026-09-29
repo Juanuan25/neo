@@ -9,6 +9,7 @@
 //!
 //! Listing runs unprivileged; snapshot / set / rsync go through `sudo -n`.
 pub mod data;
+pub mod render;
 pub mod service;
 
 use std::path::Path;
