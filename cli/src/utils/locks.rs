@@ -782,10 +782,8 @@ mod tests {
 
     fn tmp_root(name: &str) -> PathBuf {
         let n = SEQ.fetch_add(1, Ordering::Relaxed);
-        let p = std::env::temp_dir().join(format!(
-            "neo-locks-test-{}-{name}-{n}",
-            std::process::id()
-        ));
+        let p =
+            std::env::temp_dir().join(format!("neo-locks-test-{}-{name}-{n}", std::process::id()));
         let _ = fs::remove_dir_all(&p);
         p
     }
@@ -805,17 +803,25 @@ mod tests {
     #[test]
     fn shared_holders_coexist_exclusive_blocks() {
         let m = LockManager::new(tmp_root("rw"));
-        let a = m.try_acquire(&LockSpec::system_shared(), &info("A")).unwrap();
-        let b = m.try_acquire(&LockSpec::system_shared(), &info("B")).unwrap();
+        let a = m
+            .try_acquire(&LockSpec::system_shared(), &info("A"))
+            .unwrap();
+        let b = m
+            .try_acquire(&LockSpec::system_shared(), &info("B"))
+            .unwrap();
         let c = conflict(m.try_acquire(&LockSpec::system_change(), &info("C")));
         assert_eq!(c.scope, Scope::System);
         assert_eq!(c.holders.len(), 2);
         drop(a);
         drop(b);
-        let ex = m.try_acquire(&LockSpec::system_change(), &info("C")).unwrap();
+        let ex = m
+            .try_acquire(&LockSpec::system_change(), &info("C"))
+            .unwrap();
         let c = conflict(m.try_acquire(&LockSpec::system_shared(), &info("D")));
         assert_eq!(c.holders[0].label, "C");
-        assert!(c.to_string().starts_with("Blocked: C in progress (started "));
+        assert!(c
+            .to_string()
+            .starts_with("Blocked: C in progress (started "));
         drop(ex);
     }
 
@@ -824,7 +830,9 @@ mod tests {
         let root = tmp_root("drop");
         let m = LockManager::new(&root);
         {
-            let _g = m.try_acquire(&LockSpec::system_change(), &info("A")).unwrap();
+            let _g = m
+                .try_acquire(&LockSpec::system_change(), &info("A"))
+                .unwrap();
             assert_eq!(m.holders().len(), 1);
         }
         assert!(m.holders().is_empty());
@@ -834,18 +842,25 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().ends_with(HOLDER_EXT))
             .count();
         assert_eq!(holder_files, 0);
-        m.try_acquire(&LockSpec::system_change(), &info("B")).unwrap();
+        m.try_acquire(&LockSpec::system_change(), &info("B"))
+            .unwrap();
     }
 
     #[test]
     fn service_ops_parallel_but_not_same_service_or_under_activation() {
         let m = LockManager::new(tmp_root("svc"));
         let a = m
-            .try_acquire(&LockSpec::service_data("a", ["docker-a"]), &info("restore a"))
+            .try_acquire(
+                &LockSpec::service_data("a", ["docker-a"]),
+                &info("restore a"),
+            )
             .unwrap();
         // Another service: fine.
         let b = m
-            .try_acquire(&LockSpec::service_data("b", ["docker-b"]), &info("restore b"))
+            .try_acquire(
+                &LockSpec::service_data("b", ["docker-b"]),
+                &info("restore b"),
+            )
             .unwrap();
         // Same service / its unit: blocked.
         let c = conflict(m.try_acquire(&LockSpec::service_data("a", []), &info("clear a")));
@@ -861,7 +876,9 @@ mod tests {
         drop(a);
         conflict(m.try_acquire(&LockSpec::system_change(), &info("activate")));
         drop(b);
-        let act = m.try_acquire(&LockSpec::system_change(), &info("activate")).unwrap();
+        let act = m
+            .try_acquire(&LockSpec::system_change(), &info("activate"))
+            .unwrap();
         // ...and blocks a new restore.
         conflict(m.try_acquire(&LockSpec::service_data("a", ["docker-a"]), &info("restore")));
         // Unit control alone does not need the system scope.
@@ -873,7 +890,9 @@ mod tests {
     #[test]
     fn all_or_nothing() {
         let m = LockManager::new(tmp_root("aon"));
-        let held = m.try_acquire(&LockSpec::unit("docker-x"), &info("pull")).unwrap();
+        let held = m
+            .try_acquire(&LockSpec::unit("docker-x"), &info("pull"))
+            .unwrap();
         conflict(m.try_acquire(
             &LockSpec::service_data("x", ["docker-w", "docker-x"]),
             &info("restore"),
@@ -903,7 +922,10 @@ mod tests {
     fn scope_keys_and_files() {
         assert_eq!(Scope::unit("docker-foo").key(), "unit/docker-foo.service");
         assert_eq!(Scope::unit("neo-foo.target").key(), "unit/neo-foo.target");
-        assert_eq!(Scope::parse("service/calino"), Some(Scope::service("calino")));
+        assert_eq!(
+            Scope::parse("service/calino"),
+            Some(Scope::service("calino"))
+        );
         assert_eq!(Scope::parse("system"), Some(Scope::System));
         assert_eq!(Scope::parse("bogus/x"), None);
         assert_eq!(
@@ -916,7 +938,9 @@ mod tests {
     #[test]
     fn inherited_scopes_are_skipped() {
         let m = LockManager::new(tmp_root("inherit"));
-        let _parent = m.try_acquire(&LockSpec::system_change(), &info("update")).unwrap();
+        let _parent = m
+            .try_acquire(&LockSpec::system_change(), &info("update"))
+            .unwrap();
         let mut child = m.clone();
         child.inherited.insert(Scope::System);
         let g = child
@@ -928,7 +952,9 @@ mod tests {
     #[test]
     fn wait_times_out_then_succeeds_after_release() {
         let m = LockManager::new(tmp_root("wait"));
-        let g = m.try_acquire(&LockSpec::system_change(), &info("A")).unwrap();
+        let g = m
+            .try_acquire(&LockSpec::system_change(), &info("A"))
+            .unwrap();
         let t = Instant::now();
         conflict(m.acquire(
             &LockSpec::system_change(),
@@ -938,9 +964,13 @@ mod tests {
         assert!(t.elapsed() >= Duration::from_millis(300));
         let m2 = m.clone();
         let h = std::thread::spawn(move || {
-            m2.acquire(&LockSpec::system_change(), &info("B"), Duration::from_secs(5))
-                .map(|_| ())
-                .map_err(|e| e.to_string())
+            m2.acquire(
+                &LockSpec::system_change(),
+                &info("B"),
+                Duration::from_secs(5),
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
         });
         std::thread::sleep(Duration::from_millis(300));
         drop(g);
@@ -952,7 +982,10 @@ mod tests {
         let root = tmp_root("guard");
         let m = LockManager::new(&root);
         let mut g = m
-            .try_acquire(&LockSpec::service_data("a", ["docker-a"]), &info("restore a"))
+            .try_acquire(
+                &LockSpec::service_data("a", ["docker-a"]),
+                &info("restore a"),
+            )
             .unwrap();
         g.guard_units(&["docker-a".to_string(), "neo-a.target".to_string()])
             .unwrap();
@@ -1012,8 +1045,8 @@ mod tests {
         let m = LockManager::new(&root);
         fs::create_dir_all(root.join("locks")).unwrap();
         // flock(1) from a shell script: lock only, no holder file.
-        let f = open_lock_file(&root.join("locks").join(Scope::unit("docker-a").file_name()))
-            .unwrap();
+        let f =
+            open_lock_file(&root.join("locks").join(Scope::unit("docker-a").file_name())).unwrap();
         flock(&f, libc::LOCK_EX).unwrap();
         let c = conflict(m.try_acquire(&LockSpec::unit("docker-a"), &info("x")));
         assert_eq!(

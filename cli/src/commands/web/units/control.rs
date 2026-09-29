@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use tokio::process::Command as AsyncCommand;
 
+use super::super::locks::{lock_attr, LockMode, Scope};
 use super::super::types::AppConfig;
 use super::super::util::{escape_attr, escape_html, status_slot_oob, sudo_cmd};
 use super::status::{query_unit_status_blocking, UnitStatus};
@@ -102,6 +103,8 @@ fn render_unit_controls_content_with_state(unit: &str, st: &UnitStatus, pulling:
     let is_container = unit.starts_with("docker-");
 
     let u = escape_html(unit);
+    // Disabled by static/locks.js while the unit is locked (restore, pull, …).
+    let lk = lock_attr(&[(Scope::unit(unit), LockMode::Exclusive)]);
     // Basic JS string escape for onclick arg (single quotes in unit names are rare for units)
     let u_js = u.replace('\'', "\\'");
 
@@ -116,15 +119,15 @@ fn render_unit_controls_content_with_state(unit: &str, st: &UnitStatus, pulling:
     // Primary slot: inactive/failed → start; anything running/transitional → stop.
     let primary = match st.active.as_str() {
         "inactive" | "failed" => format!(
-            r##"<button type="button" class="{BTN} text-success" hx-post="/unit/start/{u}" hx-swap="none" title="Start (systemctl start)" aria-label="Start {u}">{ICON_START}</button>"##
+            r##"<button type="button" class="{BTN} text-success" hx-post="/unit/start/{u}"{lk} hx-swap="none" title="Start (systemctl start)" aria-label="Start {u}">{ICON_START}</button>"##
         ),
         _ => format!(
-            r##"<button type="button" class="{BTN} text-error" hx-post="/unit/stop/{u}" hx-swap="none" title="Stop (systemctl stop)" aria-label="Stop {u}">{ICON_STOP}</button>"##
+            r##"<button type="button" class="{BTN} text-error" hx-post="/unit/stop/{u}"{lk} hx-swap="none" title="Stop (systemctl stop)" aria-label="Stop {u}">{ICON_STOP}</button>"##
         ),
     };
     inner.push_str(&primary);
     inner.push_str(&format!(
-        r##"<button type="button" class="{BTN}" hx-post="/unit/restart/{u}" hx-swap="none" title="Restart (systemctl restart)" aria-label="Restart {u}">{ICON_RESTART}</button>"##
+        r##"<button type="button" class="{BTN}" hx-post="/unit/restart/{u}"{lk} hx-swap="none" title="Restart (systemctl restart)" aria-label="Restart {u}">{ICON_RESTART}</button>"##
     ));
 
     if !is_container {
@@ -137,7 +140,7 @@ fn render_unit_controls_content_with_state(unit: &str, st: &UnitStatus, pulling:
         // hx-swap=none: immediate OOB (update-out + controls) comes from the response;
         // long pull progress is pushed over /ws/status.
         inner.push_str(&format!(
-            r##"<button type="button" class="{BTN}" hx-post="/container/update/{u}" hx-swap="none" hx-disabled-elt="this" title="Pull the image and restart (docker pull + restart)" aria-label="Update image of {u}">{ICON_PULL}</button>"##
+            r##"<button type="button" class="{BTN}" hx-post="/container/update/{u}"{lk} hx-swap="none" hx-disabled-elt="this" title="Pull the image and restart (docker pull + restart)" aria-label="Update image of {u}">{ICON_PULL}</button>"##
         ));
     }
 

@@ -674,9 +674,16 @@ window.versioningPage = function versioningPage() {
       var self = this;
       return fetch(url, { method: 'POST', headers: { Accept: 'text/html' } })
         .then(function (r) {
+          // 409: refused by an operation lock (toast, no dialog).
+          if (r.status === 409 && window.NeoLocks) {
+            return window.NeoLocks.handleFetch(r).then(function () {
+              return null;
+            });
+          }
           return r.text();
         })
         .then(function (html) {
+          if (html == null) return;
           openModal(title, html);
           self.loadTree();
         })

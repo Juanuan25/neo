@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use tokio::process::Command as AsyncCommand;
 
+use super::super::locks::{lock_attr, LockMode, Scope};
 use super::super::types::AppConfig;
 use super::super::units::{
     broadcast_unit_update, end_clear_appdata, schedule_unit_refresh_burst, start_units_best_effort,
@@ -102,13 +103,14 @@ pub async fn render_service_snapshots(
         ("", "")
     };
 
+    let snap_lock = lock_attr(&[(Scope::service(service), LockMode::Shared)]);
     let mut html = open;
     html.push_str(&format!(
         r##"<div class="flex flex-wrap items-center gap-2">
   <p class="text-xs sm:text-sm text-base-content/60 min-w-0 flex-1">Snapshots of this service's app data <span class="font-mono break-all">{appdata_html}</span>.</p>
   <span class="flex gap-1.5">
     <button type="button" class="{BTN_SECONDARY}" hx-get="/service/{svc}/snapshots" hx-target="#snapshots-{svc}" hx-swap="outerHTML">Refresh</button>
-    <button type="button" class="btn btn-sm btn-primary{dis_cls}"{dis_attr} hx-post="/service/{svc}/snapshots/create" hx-swap="none" hx-disabled-elt="this" title="zfs snapshot {ds}@neo-snap-{svc}-…">Snapshot now</button>
+    <button type="button" class="btn btn-sm btn-primary{dis_cls}"{dis_attr} hx-post="/service/{svc}/snapshots/create"{snap_lock} hx-swap="none" hx-disabled-elt="this" title="zfs snapshot {ds}@neo-snap-{svc}-…">Snapshot now</button>
   </span>
 </div>
 <div id="snapshot-out-{svc}" class="{OUT_CLASSES}" title=""></div>
@@ -173,10 +175,14 @@ fn snapshot_row(
             .to_string()
     } else {
         format!(
-            r#"<button type="button" class="{BTN_SECONDARY}" hx-post="/service/{svc}/snapshots/restore?snap={snap_q}" hx-swap="none" hx-disabled-elt="this" hx-confirm="{confirm}" title="Replace the app data folder with this snapshot">Restore</button>"#,
+            r#"<button type="button" class="{BTN_SECONDARY}" hx-post="/service/{svc}/snapshots/restore?snap={snap_q}"{lk} hx-swap="none" hx-disabled-elt="this" hx-confirm="{confirm}" title="Replace the app data folder with this snapshot">Restore</button>"#,
             svc = escape_attr(service),
             snap_q = escape_attr(&render::urlencode(&s.name)),
             confirm = escape_attr(&confirm),
+            lk = lock_attr(&[
+                (Scope::System, LockMode::Shared),
+                (Scope::service(service), LockMode::Exclusive),
+            ]),
         )
     };
     let manual_mine = s.name.starts_with(&format!("neo-snap-{service}-"))

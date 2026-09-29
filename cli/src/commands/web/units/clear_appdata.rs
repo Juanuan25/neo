@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use tokio::process::Command as AsyncCommand;
 
+use super::super::locks::{lock_attr, LockMode, Scope};
 use super::super::schema_cache::extract_pane;
 use super::super::types::{AppConfig, OptionPaneContext};
 use super::super::util::{
@@ -52,8 +53,12 @@ pub fn clear_appdata_btn_oob(service: &str, appdata: &str, busy: bool) -> String
             path = path,
         )
     } else {
+        let lk = lock_attr(&[
+            (Scope::System, LockMode::Shared),
+            (Scope::service(service), LockMode::Exclusive),
+        ]);
         format!(
-            r##"<button id="clear-appdata-btn-{svc}" class="btn btn-error btn-outline btn-sm shrink-0" title="Delete {path}" hx-post="/service/{svc}/clear-appdata" hx-swap="none" hx-confirm="{confirm}" hx-disabled-elt="this" hx-swap-oob="true">Clear appdata</button>"##,
+            r##"<button id="clear-appdata-btn-{svc}" class="btn btn-error btn-outline btn-sm shrink-0" title="Delete {path}" hx-post="/service/{svc}/clear-appdata"{lk} hx-swap="none" hx-confirm="{confirm}" hx-disabled-elt="this" hx-swap-oob="true">Clear appdata</button>"##,
             svc = svc,
             path = path,
             confirm = confirm,

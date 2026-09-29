@@ -31,6 +31,6 @@ pub fn alert_html(kind: AlertKind, msg: &str) -> String {
 pub fn changes_actions_row() -> &'static str {
     r##"<div class="mt-4 flex flex-nowrap items-center justify-end gap-2" data-dialog-actions>
   <button type="button" hx-post="/changes/revert" hx-target="#changes-body" hx-swap="innerHTML" class="btn btn-sm btn-ghost" hx-confirm="Discard all uncommitted changes and return to the last committed configuration?">Discard changes</button>
-  <button type="button" hx-post="/changes/apply" hx-target="#changes-body" hx-swap="innerHTML" hx-confirm="Run full activation (write-flake + nixos-rebuild)? This can take several minutes." class="btn btn-sm btn-primary">Activate now</button>
+  <button type="button" hx-post="/changes/apply" data-neo-lock="system" hx-target="#changes-body" hx-swap="innerHTML" hx-confirm="Run full activation (write-flake + nixos-rebuild)? This can take several minutes." class="btn btn-sm btn-primary">Activate now</button>
 </div>"##
 }

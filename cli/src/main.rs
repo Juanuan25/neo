@@ -242,10 +242,13 @@ fn run(cli: Cli) -> Result<()> {
 /// Operation lock a subcommand needs, and the web-tracked op it runs as (if any).
 /// See `utils::locks` for the scope model.
 fn command_lock(command: &Commands) -> Option<(LockSpec, OpInfo, Option<OperationLog>)> {
-    let system = |kind: &str, label: &str| Some((LockSpec::system_change(), OpInfo::new(kind, label), None));
+    let system =
+        |kind: &str, label: &str| Some((LockSpec::system_change(), OpInfo::new(kind, label), None));
     // Set when the web UI started this command (its monitor must see a lock failure).
     let web_op = |kind: OperationKind, suffix: Option<String>| {
-        suffix.filter(|s| !s.is_empty()).map(|s| OperationLog::new(kind, &s))
+        suffix
+            .filter(|s| !s.is_empty())
+            .map(|s| OperationLog::new(kind, &s))
     };
     let with_op = |mut t: (LockSpec, OpInfo, Option<OperationLog>), op: Option<OperationLog>| {
         if let Some(op) = &op {
@@ -280,7 +283,10 @@ fn command_lock(command: &Commands) -> Option<(LockSpec, OpInfo, Option<Operatio
         Commands::GenerateHardware => system("generate-hardware", "Hardware config generation"),
         Commands::Nuke => system("nuke", "Config removal"),
         Commands::DockerUpdate { container } => {
-            let unit = format!("docker-{}", container.strip_prefix("docker-").unwrap_or(container));
+            let unit = format!(
+                "docker-{}",
+                container.strip_prefix("docker-").unwrap_or(container)
+            );
             Some((
                 LockSpec::unit(&unit),
                 OpInfo::new("pull", format!("Image update of {unit}")),

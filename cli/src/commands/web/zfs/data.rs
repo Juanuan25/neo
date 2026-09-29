@@ -99,7 +99,7 @@ pub async fn render_card(notice: Option<(&'static str, String)>) -> String {
             tone: "alert-warning",
             html: format!(
                 r##"<span>Restore to <span class="font-mono">{}</span> runs at the next boot.</span>
-<span class="flex gap-1 ml-auto"><button type="button" class="btn btn-xs btn-error" hx-post="/versioning/zfs/reboot" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-confirm="Reboot the server now and restore all Neo data?">Reboot now</button>
+<span class="flex gap-1 ml-auto"><button type="button" class="btn btn-xs btn-error" hx-post="/versioning/zfs/reboot" data-neo-lock="system" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-confirm="Reboot the server now and restore all Neo data?">Reboot now</button>
 <button type="button" class="btn btn-xs" hx-post="/versioning/zfs/cancel" hx-target="#{CARD_ID}" hx-swap="outerHTML">Cancel</button></span>"##,
                 escape_html(target)
             ),
@@ -261,7 +261,7 @@ fn data_row(s: &Snapshot, ctx: &RowCtx) -> String {
                 .unwrap_or_else(|| "(current)".into()),
         );
         actions.push_str(&format!(
-            r##"<button type="button" class="{BTN_SECONDARY}" hx-post="/versioning/zfs/restore?{q}" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data only; boot the default system generation">Restore</button>"##,
+            r##"<button type="button" class="{BTN_SECONDARY}" hx-post="/versioning/zfs/restore?{q}" data-neo-lock="system" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data only; boot the default system generation">Restore</button>"##,
             c = escape_attr(&data_only),
         ));
         if let Some(g) = gen.filter(|g| Some(*g) != ctx.boot_gen) {
@@ -269,7 +269,7 @@ fn data_row(s: &Snapshot, ctx: &RowCtx) -> String {
                 "{base_warning}\n• The boot default is set to system generation {g} (running when the snapshot was taken) before the reboot."
             );
             actions.push_str(&format!(
-                r##"<button type="button" class="{BTN_SECONDARY}" hx-post="/versioning/zfs/restore?{q}&gen={g}" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data and boot system generation {g}">Restore + boot gen {g}</button>"##,
+                r##"<button type="button" class="{BTN_SECONDARY}" hx-post="/versioning/zfs/restore?{q}&gen={g}" data-neo-lock="system" hx-target="#{CARD_ID}" hx-swap="outerHTML" hx-disabled-elt="this" hx-confirm="{c}" title="Restore data and boot system generation {g}">Restore + boot gen {g}</button>"##,
                 c = escape_attr(&with_gen),
             ));
         }
