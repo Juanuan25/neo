@@ -102,7 +102,16 @@ pub fn dataset_for_path(mounts: &[ZfsMount], path: &str) -> Option<(ZfsMount, St
     best
 }
 
-#[derive(Clone, Debug)]
+/// `zfs hold` tag of a pinned snapshot. zfstools (services.zfs.autoSnapshot)
+/// prunes with `zfs destroy -d`, which only marks a held snapshot for deferred
+/// destruction: it survives until the hold is released.
+pub const PIN_TAG: &str = "neo-pin";
+/// User property with the free-text label shown for a snapshot.
+pub const PROP_COMMENT: &str = "neo:comment";
+/// Longest comment kept (characters).
+pub const COMMENT_MAX: usize = 120;
+
+#[derive(Clone, Debug, Default)]
 pub struct Snapshot {
     /// `dataset@name`
     pub full: String,
@@ -112,7 +121,17 @@ pub struct Snapshot {
     pub creation: i64,
     /// Bytes unique to this snapshot.
     pub used: u64,
+    /// Number of `zfs hold`s (any tag). A held snapshot cannot be destroyed.
+    pub userrefs: u64,
+    /// Held with [`PIN_TAG`] (resolved by [`list_snapshots`]).
+    pub pinned: bool,
+    /// A pruner already ran `zfs destroy -d` on it: releasing the last hold destroys it.
+    pub defer_destroy: bool,
+    /// [`PROP_COMMENT`], if set.
+    pub comment: Option<String>,
 }
+
+const LIST_PROPS: &str = "name,creation,used,userrefs,defer_destroy,neo:comment";
 
 fn parse_snapshot_list(text: &str) -> Vec<Snapshot> {
     text.lines()
@@ -120,7 +139,15 @@ fn parse_snapshot_list(text: &str) -> Vec<Snapshot> {
             let mut f = l.split('\t');
             let full = f.next()?.to_string();
             let creation = f.next()?.trim().parse().ok()?;
-            let used = f.next().and_then(|u| u.trim().parse().ok()).unwrap_or(0);
+            let mut num = || f.next().and_then(|u| u.trim().parse().ok()).unwrap_or(0);
+            let used = num();
+            let userrefs = num();
+            let defer_destroy = f.next().map(str::trim) == Some("on");
+            let comment = f
+                .next()
+                .map(str::trim)
+                .filter(|c| !c.is_empty() && *c != "-")
+                .map(str::to_string);
             let (dataset, name) = full.split_once('@')?;
             Some(Snapshot {
                 dataset: dataset.to_string(),
@@ -128,7 +155,22 @@ fn parse_snapshot_list(text: &str) -> Vec<Snapshot> {
                 full: full.clone(),
                 creation,
                 used,
+                userrefs,
+                pinned: false,
+                defer_destroy,
+                comment,
             })
+        })
+        .collect()
+}
+
+/// `zfs holds -H` lines (`<snapshot>\t<tag>\t<time>`) → snapshots held with `tag`.
+fn parse_holds(text: &str, tag: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|l| {
+            let mut f = l.split('\t');
+            let snap = f.next()?.trim();
+            (f.next()?.trim() == tag).then(|| snap.to_string())
         })
         .collect()
 }
@@ -162,15 +204,7 @@ async fn zfs_output(args: &[&str], sudo: bool) -> Result<String, String> {
 /// Snapshots of `dataset` (and its descendants when `recursive`), oldest first.
 pub async fn list_snapshots(dataset: &str, recursive: bool) -> Result<Vec<Snapshot>, String> {
     let mut args = vec![
-        "list",
-        "-H",
-        "-p",
-        "-t",
-        "snapshot",
-        "-o",
-        "name,creation,used",
-        "-s",
-        "creation",
+        "list", "-H", "-p", "-t", "snapshot", "-o", LIST_PROPS, "-s", "creation",
     ];
     if recursive {
         args.push("-r");
@@ -183,7 +217,37 @@ pub async fn list_snapshots(dataset: &str, recursive: bool) -> Result<Vec<Snapsh
     if !recursive {
         snaps.retain(|s| s.dataset == dataset);
     }
+    resolve_pins(&mut snaps).await;
     Ok(snaps)
+}
+
+/// Mark snapshots held with [`PIN_TAG`]. Only held ones are queried (usually
+/// none or a few). If `zfs holds` fails, any hold counts as a pin.
+async fn resolve_pins(snaps: &mut [Snapshot]) {
+    let held: Vec<String> = snaps
+        .iter()
+        .filter(|s| s.userrefs > 0)
+        .map(|s| s.full.clone())
+        .collect();
+    if held.is_empty() {
+        return;
+    }
+    let mut args = vec!["holds", "-H"];
+    args.extend(held.iter().map(String::as_str));
+    match zfs_output(&args, false).await {
+        Ok(out) => {
+            let pinned = parse_holds(&out, PIN_TAG);
+            for s in snaps.iter_mut() {
+                s.pinned = pinned.contains(&s.full);
+            }
+        }
+        Err(e) => {
+            eprintln!("web: {e}");
+            for s in snaps.iter_mut() {
+                s.pinned = s.userrefs > 0;
+            }
+        }
+    }
 }
 
 /// Filesystem datasets under `root` (including `root`).
@@ -247,6 +311,95 @@ pub fn snapshot_name_ok(s: &str) -> bool {
         && !s.starts_with('.')
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || "_-.:".contains(c))
+}
+
+/// `dataset@snap` for a snapshot the UI may act on, or why not. Rejects
+/// anything `zfs destroy` could read as more than one snapshot (`%` ranges,
+/// `,` lists), a bare dataset, and option-looking names.
+pub fn snapshot_ref(dataset: &str, snap: &str) -> Result<String, String> {
+    if !dataset_name_ok(dataset) || dataset.starts_with('-') || dataset.ends_with('/') {
+        return Err("invalid dataset name".to_string());
+    }
+    if !snapshot_name_ok(snap) {
+        return Err("invalid snapshot name".to_string());
+    }
+    Ok(format!("{dataset}@{snap}"))
+}
+
+/// Comment as stored: single line, no control characters, whitespace
+/// squeezed, capped at [`COMMENT_MAX`] characters. `None` clears it.
+pub fn sanitize_comment(s: &str) -> Option<String> {
+    let squeezed = s
+        .split(|c: char| c.is_whitespace() || c.is_control())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let out: String = squeezed.chars().take(COMMENT_MAX).collect();
+    let out = out.trim_end().to_string();
+    (!out.is_empty()).then_some(out)
+}
+
+/// What a snapshot row action does ([`snapshot_action`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum SnapAction {
+    Delete,
+    Pin,
+    Unpin,
+    Comment(String),
+}
+
+/// Delete / pin / unpin / comment one snapshot of `dataset`. The caller has
+/// already decided that `dataset` is one the UI manages; this checks that the
+/// snapshot exists and applies the pin rules. Returns a short status message.
+pub async fn snapshot_action(
+    dataset: &str,
+    snap: &str,
+    action: SnapAction,
+) -> Result<String, String> {
+    let full = snapshot_ref(dataset, snap)?;
+    let list = list_snapshots(dataset, false).await?;
+    let Some(s) = list.iter().find(|s| s.name == snap) else {
+        return Err(format!("{full} not found"));
+    };
+    match action {
+        SnapAction::Delete => {
+            if s.pinned {
+                return Err(format!("{full} is pinned; unpin it first"));
+            }
+            if s.userrefs > 0 {
+                return Err(format!("{full} is held by another tool (zfs holds)"));
+            }
+            // No -r/-R/-d: exactly this snapshot; fails on dependent clones.
+            zfs_output(&["destroy", &full], true).await?;
+            Ok(format!("deleted {full}"))
+        }
+        SnapAction::Pin => {
+            if s.pinned {
+                return Ok(format!("{full} is already pinned"));
+            }
+            zfs_output(&["hold", PIN_TAG, &full], true).await?;
+            Ok(format!("pinned {full}"))
+        }
+        SnapAction::Unpin => {
+            if !s.pinned {
+                return Ok(format!("{full} is not pinned"));
+            }
+            let expired = s.defer_destroy && s.userrefs <= 1;
+            zfs_output(&["release", PIN_TAG, &full], true).await?;
+            Ok(if expired {
+                format!("unpinned {full}; retention had expired it, so it is deleted")
+            } else {
+                format!("unpinned {full}")
+            })
+        }
+        SnapAction::Comment(c) => {
+            match sanitize_comment(&c) {
+                Some(c) => set_property(&full, PROP_COMMENT, &c).await?,
+                None => inherit_property(&full, PROP_COMMENT).await?,
+            }
+            Ok(format!("updated the comment of {full}"))
+        }
+    }
 }
 
 /// UTC timestamp for snapshot names: `20260928-101500`.
@@ -410,6 +563,68 @@ mod tests {
         assert_eq!(s[0].name, "zfs-auto-snap_daily-2026-09-27-0000");
         assert_eq!(s[0].creation, 1790467200);
         assert_eq!(s[0].used, 12345);
+    }
+
+    #[test]
+    fn snapshot_list_parse_holds_and_comment() {
+        let t = "zroot/neo@neo-data-20260928-101500\t1790467200\t0\t1\ton\tknown good\n\
+                 zroot/neo@b\t1790467300\t5\t0\toff\t-\n";
+        let s = parse_snapshot_list(t);
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].userrefs, 1);
+        assert!(s[0].defer_destroy);
+        assert_eq!(s[0].comment.as_deref(), Some("known good"));
+        assert!(!s[0].pinned);
+        assert_eq!(s[1].used, 5);
+        assert_eq!(s[1].comment, None);
+        assert!(!s[1].defer_destroy);
+    }
+
+    #[test]
+    fn holds_parse() {
+        let t = "zroot/neo@a\tneo-pin\tMon Sep 28 10:15 2026\n\
+                 zroot/neo@b\tsyncoid\tMon Sep 28 10:15 2026\n";
+        assert_eq!(parse_holds(t, PIN_TAG), vec!["zroot/neo@a".to_string()]);
+    }
+
+    #[test]
+    fn snapshot_refs_validated() {
+        assert_eq!(
+            snapshot_ref("zroot/neo", "neo-data-20260928-101500").as_deref(),
+            Ok("zroot/neo@neo-data-20260928-101500")
+        );
+        assert!(snapshot_ref(
+            "zroot/neo.prev-20260928-101500",
+            "zfs-auto-snap_daily-2026-09-27-0000"
+        )
+        .is_ok());
+        // Never a dataset, a range, a list, or something option-like.
+        assert!(snapshot_ref("zroot/neo", "").is_err());
+        assert!(snapshot_ref("zroot/neo", "a%b").is_err());
+        assert!(snapshot_ref("zroot/neo", "a,b").is_err());
+        assert!(snapshot_ref("zroot/neo", "a@b").is_err());
+        assert!(snapshot_ref("zroot/neo", "a b").is_err());
+        assert!(snapshot_ref("zroot/neo@x", "a").is_err());
+        assert!(snapshot_ref("-r", "a").is_err());
+        assert!(snapshot_ref("zroot/", "a").is_err());
+        assert!(snapshot_ref("", "a").is_err());
+    }
+
+    #[test]
+    fn comments_sanitized() {
+        assert_eq!(
+            sanitize_comment("  known\tgood\n setup "),
+            Some("known good setup".into())
+        );
+        assert_eq!(sanitize_comment(" \n "), None);
+        assert_eq!(
+            sanitize_comment(&"x".repeat(500)).map(|c| c.len()),
+            Some(COMMENT_MAX)
+        );
+        assert_eq!(
+            sanitize_comment("fresh \u{2713}"),
+            Some("fresh \u{2713}".into())
+        );
     }
 
     #[test]

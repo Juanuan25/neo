@@ -1,19 +1,21 @@
 //! ZFS snapshot routes: per-service appdata (option pane) and all Neo data (versioning tab).
 use std::sync::Arc;
 
+use rocket::form::Form;
 use rocket::response::content::RawHtml;
-use rocket::{get, post, State};
+use rocket::{get, post, FromForm, State};
 
 use crate::commands::web::types::AppConfig;
 use crate::commands::web::units::{trusted_appdata, try_begin_clear_appdata};
 use crate::commands::web::util::{
     escape_html, service_name_ok, status_err, status_ok, status_pulling,
 };
+use crate::commands::web::zfs::service as service_zfs;
 use crate::commands::web::zfs::service::{
     locate_appdata, manual_snapshot_name, render_service_snapshots, run_restore, snapshot_out_oob,
     RestoreJob,
 };
-use crate::commands::web::zfs::{create_snapshot, data, snapshot_name_ok};
+use crate::commands::web::zfs::{create_snapshot, data, snapshot_name_ok, SnapAction};
 
 fn out_err(service: &str, msg: &str) -> RawHtml<String> {
     let (inner, title) = status_err(msg);
@@ -111,6 +113,99 @@ pub async fn service_snapshot_restore(
     RawHtml(format!("{card}{out}"))
 }
 
+/// Comment editor body (`comment` field; empty clears the comment).
+#[derive(FromForm)]
+pub struct CommentForm {
+    comment: String,
+}
+
+/// Pin / unpin / delete / comment a snapshot of the service's appdata dataset:
+/// the re-rendered card (OOB) plus the status slot.
+async fn service_manage(
+    service: &str,
+    snap: &str,
+    action: SnapAction,
+    config: &State<Arc<AppConfig>>,
+) -> RawHtml<String> {
+    if !service_name_ok(service) {
+        return RawHtml(String::new());
+    }
+    if !snapshot_name_ok(snap) {
+        return out_err(service, "invalid snapshot name");
+    }
+    let appdata = match trusted_appdata(config, service).await {
+        Ok((_, a)) => a,
+        Err(e) => return out_err(service, &e),
+    };
+    // A running restore reads this dataset's snapshots.
+    let busy = config.clear_appdata_in_flight.contains(service);
+    if busy {
+        return out_err(service, "another appdata operation is in progress");
+    }
+    let (inner, title) = match service_zfs::manage(&appdata, snap, action).await {
+        Ok(msg) => status_ok(&msg),
+        Err(e) => status_err(&e),
+    };
+    let card = render_service_snapshots(service, &appdata, busy, true).await;
+    RawHtml(format!(
+        "{card}{}",
+        snapshot_out_oob(service, &inner, &title)
+    ))
+}
+
+#[post("/service/<service>/snapshots/delete?<snap>")]
+pub async fn service_snapshot_delete(
+    service: &str,
+    snap: &str,
+    config: &State<Arc<AppConfig>>,
+) -> RawHtml<String> {
+    service_manage(service, snap, SnapAction::Delete, config).await
+}
+
+#[post("/service/<service>/snapshots/pin?<snap>")]
+pub async fn service_snapshot_pin(
+    service: &str,
+    snap: &str,
+    config: &State<Arc<AppConfig>>,
+) -> RawHtml<String> {
+    service_manage(service, snap, SnapAction::Pin, config).await
+}
+
+#[post("/service/<service>/snapshots/unpin?<snap>")]
+pub async fn service_snapshot_unpin(
+    service: &str,
+    snap: &str,
+    config: &State<Arc<AppConfig>>,
+) -> RawHtml<String> {
+    service_manage(service, snap, SnapAction::Unpin, config).await
+}
+
+#[get("/service/<service>/snapshots/comment?<snap>")]
+pub async fn service_snapshot_comment_form(
+    service: &str,
+    snap: &str,
+    config: &State<Arc<AppConfig>>,
+) -> RawHtml<String> {
+    if !service_name_ok(service) || !snapshot_name_ok(snap) {
+        return RawHtml(String::new());
+    }
+    match trusted_appdata(config, service).await {
+        Ok((_, appdata)) => RawHtml(service_zfs::comment_editor(service, &appdata, snap).await),
+        Err(_) => RawHtml(String::new()),
+    }
+}
+
+#[post("/service/<service>/snapshots/comment?<snap>", data = "<form>")]
+pub async fn service_snapshot_comment(
+    service: &str,
+    snap: &str,
+    form: Form<CommentForm>,
+    config: &State<Arc<AppConfig>>,
+) -> RawHtml<String> {
+    let comment = form.into_inner().comment;
+    service_manage(service, snap, SnapAction::Comment(comment), config).await
+}
+
 /// Data snapshots card for the versioning tab (empty + hidden when unavailable).
 #[get("/versioning/zfs")]
 pub async fn versioning_zfs() -> RawHtml<String> {
@@ -140,4 +235,34 @@ pub async fn versioning_zfs_cancel() -> RawHtml<String> {
 #[post("/versioning/zfs/dismiss")]
 pub async fn versioning_zfs_dismiss() -> RawHtml<String> {
     RawHtml(data::dismiss().await)
+}
+
+#[post("/versioning/zfs/delete?<ds>&<snap>")]
+pub async fn versioning_zfs_delete(ds: &str, snap: &str) -> RawHtml<String> {
+    RawHtml(data::manage(ds, snap, SnapAction::Delete).await)
+}
+
+#[post("/versioning/zfs/pin?<ds>&<snap>")]
+pub async fn versioning_zfs_pin(ds: &str, snap: &str) -> RawHtml<String> {
+    RawHtml(data::manage(ds, snap, SnapAction::Pin).await)
+}
+
+#[post("/versioning/zfs/unpin?<ds>&<snap>")]
+pub async fn versioning_zfs_unpin(ds: &str, snap: &str) -> RawHtml<String> {
+    RawHtml(data::manage(ds, snap, SnapAction::Unpin).await)
+}
+
+#[get("/versioning/zfs/comment?<ds>&<snap>")]
+pub async fn versioning_zfs_comment_form(ds: &str, snap: &str) -> RawHtml<String> {
+    RawHtml(data::comment_editor(ds, snap).await)
+}
+
+#[post("/versioning/zfs/comment?<ds>&<snap>", data = "<form>")]
+pub async fn versioning_zfs_comment(
+    ds: &str,
+    snap: &str,
+    form: Form<CommentForm>,
+) -> RawHtml<String> {
+    let comment = form.into_inner().comment;
+    RawHtml(data::manage(ds, snap, SnapAction::Comment(comment)).await)
 }

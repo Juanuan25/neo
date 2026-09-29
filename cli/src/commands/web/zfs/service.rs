@@ -21,10 +21,10 @@ use super::super::util::{
     escape_attr, escape_html, rsync_bin, status_err, status_ok, status_pulling, status_slot_oob,
     sudo_cmd,
 };
-use super::render::{self, BTN_SECONDARY};
+use super::render::{self, ManageCtx, BTN_SECONDARY};
 use super::{
     create_snapshot, dataset_for_path, format_epoch_utc, list_snapshots, now_epoch, now_ts,
-    snapshot_has_path, zfs_mounts, Snapshot, ZfsMount,
+    snapshot_action, snapshot_has_path, zfs_mounts, SnapAction, Snapshot, ZfsMount,
 };
 
 /// Units the restore must never stop: stopping them kills the web UI running the job.
@@ -169,18 +169,58 @@ fn snapshot_row(
         format!(
             r#"<button type="button" class="{BTN_SECONDARY}" hx-post="/service/{svc}/snapshots/restore?snap={snap_q}" hx-swap="none" hx-disabled-elt="this" hx-confirm="{confirm}" title="Replace the app data folder with this snapshot">Restore</button>"#,
             svc = escape_attr(service),
-            snap_q = escape_attr(&urlencode(&s.name)),
+            snap_q = escape_attr(&render::urlencode(&s.name)),
             confirm = escape_attr(&confirm),
         )
     };
     let manual_mine = s.name.starts_with(&format!("neo-snap-{service}-"))
         || s.name.starts_with(&format!("neo-prerestore-{service}-"));
-    render::snapshot_row(s, now, "", &action, manual_mine)
+    let base = format!("/service/{}/snapshots", escape_attr(service));
+    let manage = render::manage_actions(
+        s,
+        &render::snap_query(None, &s.name),
+        &ManageCtx {
+            base: &base,
+            hx: MANAGE_HX,
+            busy,
+        },
+    );
+    render::snapshot_row(s, now, "", &format!("{action}{manage}"), manual_mine)
 }
 
-/// Minimal query escaping for snapshot names (validated charset plus `:`).
-fn urlencode(s: &str) -> String {
-    s.replace('%', "%25").replace(':', "%3A")
+/// Row actions answer with the card (OOB) and the status slot.
+const MANAGE_HX: &str = r#"hx-swap="none""#;
+
+/// Inline comment editor for one snapshot of the service's dataset.
+pub async fn comment_editor(service: &str, appdata: &str, snap: &str) -> String {
+    let Some(loc) = locate_appdata(appdata) else {
+        return String::new();
+    };
+    let Ok(list) = list_snapshots(&loc.mount.dataset, false).await else {
+        return String::new();
+    };
+    let base = format!("/service/{}/snapshots", escape_attr(service));
+    list.iter()
+        .find(|s| s.name == snap)
+        .map(|s| {
+            render::comment_form(
+                s,
+                &render::snap_query(None, snap),
+                &ManageCtx {
+                    base: &base,
+                    hx: MANAGE_HX,
+                    busy: false,
+                },
+            )
+        })
+        .unwrap_or_default()
+}
+
+/// Delete / pin / unpin / comment a snapshot of the dataset holding the
+/// service's appdata (never a user-supplied dataset).
+pub async fn manage(appdata: &str, snap: &str, action: SnapAction) -> Result<String, String> {
+    let loc = locate_appdata(appdata).ok_or("appdata is not on a ZFS dataset")?;
+    snapshot_action(&loc.mount.dataset, snap, action).await
 }
 
 async fn rsync_restore(src: &Path, dst: &str) -> Result<(), String> {

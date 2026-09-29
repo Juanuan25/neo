@@ -14,10 +14,11 @@ use std::time::Duration;
 use tokio::process::Command as AsyncCommand;
 
 use super::super::util::{escape_attr, escape_html, sudo_cmd};
-use super::render::{self, BTN_SECONDARY};
+use super::render::{self, ManageCtx, BTN_SECONDARY};
 use super::{
     create_snapshot, dataset_name_ok, format_epoch_utc, get_property, inherit_property,
-    list_filesystems, list_snapshots, now_epoch, now_ts, set_property, snapshot_name_ok, Snapshot,
+    list_filesystems, list_snapshots, now_epoch, now_ts, set_property, snapshot_action,
+    snapshot_name_ok, snapshot_ref, SnapAction, Snapshot,
 };
 use crate::utils::{
     current_generation_number, running_generation_number, switch_system_generation, GenerationMode,
@@ -284,7 +285,63 @@ fn data_row(s: &Snapshot, ctx: &RowCtx) -> String {
         None => r#" · <span title="The system running at that time has no surviving generation">generation ?</span>"#.to_string(),
     };
 
+    let query = render::snap_query(Some(&s.dataset), &s.name);
+    actions.push_str(&render::manage_actions(s, &query, &manage_ctx(ctx.busy)));
     render::snapshot_row(s, ctx.now, &gen_cell, &actions, false)
+}
+
+fn manage_ctx(busy: bool) -> ManageCtx<'static> {
+    ManageCtx {
+        base: "/versioning/zfs",
+        hx: MANAGE_HX,
+        busy,
+    }
+}
+
+const MANAGE_HX: &str = r##"hx-target="#versioning-zfs" hx-swap="outerHTML""##;
+
+/// Only snapshots of the Neo data dataset and of the states earlier restores
+/// replaced (`<ds>.prev-…`) can be managed from the versioning tab.
+fn managed_dataset(live: &str, ds: &str) -> bool {
+    ds == live || prev_suffix(live, ds).is_some()
+}
+
+/// Delete / pin / unpin / comment a data snapshot, then re-render the card.
+pub async fn manage(ds: &str, snap: &str, action: SnapAction) -> String {
+    let Some((_, live)) = restore_target() else {
+        return render_card(err_notice(
+            "ZFS data snapshots are not available on this machine",
+        ))
+        .await;
+    };
+    if !managed_dataset(&live, ds) {
+        return render_card(err_notice("snapshot is not of the Neo data dataset")).await;
+    }
+    let notice = match snapshot_action(ds, snap, action).await {
+        Ok(msg) => ok_notice(&msg),
+        Err(e) => err_notice(&e),
+    };
+    render_card(notice).await
+}
+
+/// Inline comment editor for one data snapshot (empty when not found).
+pub async fn comment_editor(ds: &str, snap: &str) -> String {
+    let Some((_, live)) = restore_target() else {
+        return String::new();
+    };
+    if !managed_dataset(&live, ds) || snapshot_ref(ds, snap).is_err() {
+        return String::new();
+    }
+    match list_snapshots(ds, false).await {
+        Ok(list) => list
+            .iter()
+            .find(|s| s.name == snap)
+            .map(|s| {
+                render::comment_form(s, &render::snap_query(Some(ds), snap), &manage_ctx(false))
+            })
+            .unwrap_or_default(),
+        Err(_) => String::new(),
+    }
 }
 
 fn ok_notice(msg: &str) -> Option<(&'static str, String)> {
@@ -434,6 +491,19 @@ mod tests {
             prev_suffix("zroot/neo", "zroot/neox.prev-20260928-101500"),
             None
         );
+    }
+
+    #[test]
+    fn managed_datasets() {
+        assert!(managed_dataset("zroot/neo", "zroot/neo"));
+        assert!(managed_dataset(
+            "zroot/neo",
+            "zroot/neo.prev-20260928-101500"
+        ));
+        assert!(!managed_dataset("zroot/neo", "zroot"));
+        assert!(!managed_dataset("zroot/neo", "zroot/root"));
+        assert!(!managed_dataset("zroot/neo", "zroot/neo/child"));
+        assert!(!managed_dataset("zroot/neo", "zroot/neo.prev-x"));
     }
 
     #[test]
