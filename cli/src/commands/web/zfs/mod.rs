@@ -17,24 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::process::Command as AsyncCommand;
 
-use super::util::sudo_cmd;
-
-/// Prefix for snapshots taken from the web UI (manual and pre-restore).
-pub const NEO_PREFIX: &str = "neo-";
-
-pub fn zfs_bin() -> String {
-    std::env::var("ZFS_BINARY_PATH")
-        .ok()
-        .filter(|p| !p.is_empty())
-        .unwrap_or_else(|| "/run/current-system/sw/bin/zfs".to_string())
-}
-
-pub fn rsync_bin() -> String {
-    std::env::var("RSYNC_BINARY_PATH")
-        .ok()
-        .filter(|p| !p.is_empty())
-        .unwrap_or_else(|| "/run/current-system/sw/bin/rsync".to_string())
-}
+use super::util::{sudo_cmd, zfs_bin};
 
 /// A mounted ZFS filesystem (from /proc/self/mounts; disko uses legacy mounts,
 /// so the `mountpoint` property alone would say "legacy").

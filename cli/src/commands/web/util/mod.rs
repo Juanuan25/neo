@@ -13,10 +13,11 @@ pub use htmx::Htmx;
 pub use inflight::InFlightSet;
 pub use oob_status::{status_err, status_ok, status_pulling, status_slot_oob};
 pub use paths::{
-    config_dir, docker_bin, neo_bin, nix_bin, static_dir, sudo_cmd, systemctl_bin, template_dir,
+    config_dir, docker_bin, neo_bin, nix_bin, rsync_bin, static_dir, sudo_cmd, systemctl_bin,
+    template_dir, zfs_bin,
 };
 pub use validate::{
-    activation_id_ok, branch_ok, core_section_ok, generation_ok, oauth_env_key_ok,
-    oauth_session_ok, option_name_ok, provider_id_ok, repair_id_ok, rev_ok, run_as_ok,
-    service_name_ok, unit_name_valid,
+    branch_ok, core_section_ok, generation_ok, oauth_env_key_ok, oauth_session_ok, op_id_ok,
+    option_name_ok, provider_id_ok, rev_ok, run_as_ok, service_name_ok, unit_name_valid,
+    CORE_NESTED_SECTIONS,
 };

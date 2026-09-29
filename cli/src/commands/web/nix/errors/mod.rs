@@ -3,9 +3,9 @@ mod patterns;
 mod remediate;
 
 pub use patterns::classify;
-pub use remediate::{
-    offers_flake_update, offers_store_repair, plan_for, RemediationAction, RemediationPlan,
-};
+use remediate::{offers_flake_update, offers_store_repair, plan_for};
+
+use crate::commands::web::types::EvalErrorUi;
 
 /// Stable categories operators and remediation code can switch on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -39,22 +39,6 @@ impl NixErrorKind {
             Self::Unknown => "unknown",
         }
     }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::MissingStorePath => "Missing store path",
-            Self::FlakeLockStale => "Stale flake lock",
-            Self::EvalAssertion => "Assertion failed",
-            Self::InfiniteRecursion => "Infinite recursion",
-            Self::UndefinedVariable => "Undefined variable",
-            Self::HashMismatch => "Hash mismatch",
-            Self::NetworkFetchFailed => "Network fetch failed",
-            Self::PermissionDenied => "Permission denied",
-            Self::Timeout => "Evaluation timeout",
-            Self::ProcessDied => "Nix process died",
-            Self::Unknown => "Nix evaluation error",
-        }
-    }
 }
 
 /// Structured Nix failure for banners, logs, and future remediation.
@@ -70,10 +54,6 @@ pub struct NixError {
 }
 
 impl NixError {
-    pub fn classify(text: &str) -> Self {
-        classify(text)
-    }
-
     /// Compact message for existing `error: Option<String>` template fields.
     pub fn user_message(&self) -> String {
         let mut msg = format!("[{}] {}", self.kind.id(), self.summary);
@@ -107,8 +87,15 @@ impl NixError {
     }
 }
 
-impl std::fmt::Display for NixError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.user_message())
+/// UI banner for a failed extract: `context`, classified summary, remediation hint
+/// and which repair actions to offer.
+pub fn eval_error_ui(context: &str, err: &anyhow::Error) -> EvalErrorUi {
+    let nix_err = classify(&format!("{err:#}"));
+    let help = plan_for(nix_err.kind).help;
+    EvalErrorUi {
+        error: Some(format!("{context}: {}. {help}", nix_err.display_message())),
+        error_kind: Some(nix_err.kind.id().to_string()),
+        can_store_repair: offers_store_repair(nix_err.kind),
+        can_flake_update: offers_flake_update(nix_err.kind),
     }
 }

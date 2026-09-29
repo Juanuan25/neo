@@ -706,10 +706,6 @@ window.versioningPage = function versioningPage() {
       this.post('/actions/activate', 'Activating current settings');
     },
 
-    genExists(n) {
-      return !!this.genRow(n) || (this.tree && this.tree.status && this.tree.status.headGeneration === n);
-    },
-
     switchGen(n) {
       var msg =
         'Switch the running system to generation ' + n + '?\n\n' +

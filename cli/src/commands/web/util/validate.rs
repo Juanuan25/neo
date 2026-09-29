@@ -1,3 +1,5 @@
+use crate::utils::ops::OperationKind;
+
 /// Safe identifier for systemd units, docker names, and similar path segments.
 /// ASCII alnum plus `-@._`, non-empty, max 256 chars.
 pub fn unit_name_valid(unit: &str) -> bool {
@@ -8,42 +10,23 @@ pub fn unit_name_valid(unit: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || "-@._".contains(c))
 }
 
-/// Activation / update / generation-switch operation ids under the ops dir.
-/// Must match `activation_*`, `update_*`, or `genswitch_*` with safe path characters.
-pub fn activation_id_ok(id: &str) -> bool {
-    if id.is_empty() || id.len() > 200 {
-        return false;
-    }
-    if !(id.starts_with("activation_") || id.starts_with("update_") || id.starts_with("genswitch_"))
-    {
-        return false;
-    }
-    id.chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+/// Non-empty, at most 200 chars of ASCII alnum, `_` and `-` (safe as a path segment).
+fn safe_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 200
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
-/// Store-repair job ids (`repair_*`) under the same ops dir.
-pub fn repair_id_ok(id: &str) -> bool {
-    if id.is_empty() || id.len() > 200 {
-        return false;
-    }
-    if !id.starts_with("repair_") {
-        return false;
-    }
-    id.chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+/// Background op ids under the ops dir: `activation_*`, `update_*`, `genswitch_*`, `repair_*`.
+pub fn op_id_ok(id: &str) -> bool {
+    safe_id(id) && OperationKind::from_id(id).is_some()
 }
 
-/// Git branch names allowed for web UI switch (activation history only).
+/// Git branch names of the activation history.
 pub fn branch_ok(br: &str) -> bool {
-    if br.is_empty() || br.len() > 200 {
-        return false;
-    }
-    if !br.starts_with("activation_") {
-        return false;
-    }
-    br.chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    safe_id(br) && br.starts_with("activation_")
 }
 
 /// Git revision allowed for versioning APIs: `activation_*` branch name or hex SHA (7–40).
@@ -129,22 +112,22 @@ pub fn service_name_ok(name: &str) -> bool {
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+/// Settings sections stored under `[core]`: the aggregate `core` pane and its keys.
+pub const CORE_NESTED_SECTIONS: &[&str] = &[
+    "ssh",
+    "volumes",
+    "timeZone",
+    "uid",
+    "gid",
+    "hostname",
+    "hashedLinuxPassword",
+    "plugins",
+    "core",
+];
+
 /// Known core / top-level settings section names accepted by save-core.
 pub fn core_section_ok(section: &str) -> bool {
-    matches!(
-        section,
-        "ssh"
-            | "volumes"
-            | "timeZone"
-            | "uid"
-            | "gid"
-            | "hostname"
-            | "hashedLinuxPassword"
-            | "core"
-            | "plugins"
-            | "neo-cli"
-            | "disko"
-    )
+    CORE_NESTED_SECTIONS.contains(&section) || matches!(section, "neo-cli" | "disko")
 }
 
 #[cfg(test)]
@@ -152,13 +135,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn activation_id_rejects_traversal() {
-        assert!(!activation_id_ok("../etc/passwd"));
-        assert!(!activation_id_ok("activation_/../x"));
-        assert!(activation_id_ok("activation_20240101_120000"));
-        assert!(activation_id_ok("update_20240101_120000"));
-        assert!(activation_id_ok("genswitch_20240101-120000"));
-        assert!(!activation_id_ok("genswitch_/../x"));
+    fn op_id_rejects_traversal() {
+        assert!(!op_id_ok("../etc/passwd"));
+        assert!(!op_id_ok("activation_/../x"));
+        assert!(op_id_ok("activation_20240101_120000"));
+        assert!(op_id_ok("update_20240101_120000"));
+        assert!(op_id_ok("genswitch_20240101-120000"));
+        assert!(op_id_ok("repair_20240101-120000"));
+        assert!(!op_id_ok("genswitch_/../x"));
+        assert!(!op_id_ok("nope_1"));
     }
 
     #[test]

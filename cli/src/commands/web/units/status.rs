@@ -230,7 +230,7 @@ impl UnitStatusCache {
             .filter(|u| {
                 entries
                     .get(u.as_str())
-                    .map_or(true, |(at, _)| now.duration_since(*at) >= self.ttl)
+                    .is_none_or(|(at, _)| now.duration_since(*at) >= self.ttl)
             })
             .cloned()
             .collect();

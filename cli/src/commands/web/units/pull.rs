@@ -20,10 +20,9 @@ fn fail_pull(unit: &str, msg: &str, config: &AppConfig) {
 }
 
 fn last_progress_line(buf: &str) -> Option<&str> {
-    buf.split(|c| c == '\r' || c == '\n')
+    buf.split(['\r', '\n'])
         .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .last()
+        .rfind(|s| !s.is_empty())
 }
 
 fn spawn_pull_pipe_reader(

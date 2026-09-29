@@ -52,7 +52,7 @@ fn parse_active_state_stdout(stdout: &[u8]) -> String {
 }
 
 /// Query systemctl is-active for a unit (sync; used when building OOB control fragments).
-pub fn unit_active_state(unit: &str) -> String {
+fn unit_active_state(unit: &str) -> String {
     let sudo = sudo_cmd();
     Command::new(&sudo)
         .args(["systemctl", "is-active", unit])
@@ -115,7 +115,7 @@ fn dot_state(active: &str) -> &'static str {
 /// Buttons stay stable across transitional states so restart/stop never "vanish"
 /// while systemctl --no-block is still settling (the live WS watcher re-renders
 /// as soon as ActiveState changes).
-pub fn render_unit_controls_content_with_state(unit: &str, active: &str, pulling: bool) -> String {
+fn render_unit_controls_content_with_state(unit: &str, active: &str, pulling: bool) -> String {
     let is_container = unit.starts_with("docker-");
 
     let u = escape_html(unit);
@@ -238,10 +238,8 @@ pub fn extract_unit_state_from_oob(fragment: &str) -> Option<(String, String)> {
 
 /// Normalize path param to (systemd unit name, bare docker container name).
 pub fn normalize_container_unit(container: &str) -> (String, String) {
-    if container.starts_with("docker-") {
-        let bare = container[7..].to_string();
-        (container.to_string(), bare)
-    } else {
-        (format!("docker-{}", container), container.to_string())
+    match container.strip_prefix("docker-") {
+        Some(bare) => (container.to_string(), bare.to_string()),
+        None => (format!("docker-{container}"), container.to_string()),
     }
 }

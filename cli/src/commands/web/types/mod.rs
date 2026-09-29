@@ -8,13 +8,10 @@ mod versioning;
 
 pub use app_config::AppConfig;
 pub use eval_error::EvalErrorUi;
-pub use pane::{OptionPaneContext, OptionSection, RuntimeUnit, ServiceMeta, ServiceScreenshot};
-pub use schema::{
-    ChoiceItem, HelperInput, OptionHelper, OptionSchema, OptionType, OptionUi, OptionUiKeysFrom,
-    OptionUiMode, OptionUiOauth, OptionUiSave,
-};
+pub use pane::{OptionPaneContext, OptionSection, RuntimeUnit, ServiceMeta};
+pub use schema::{ChoiceItem, OptionHelper, OptionSchema, OptionType, OptionUiOauth};
 pub use services::{
-    ConfigurationPageContext, ExtractedServiceGroups, IndexContext, NavigatorContext, PluginFilter,
-    PluginInventoryEntry, ProxiedService, Service, ServiceCategoryGroup, ServicePlugin,
+    ConfigurationPageContext, ExtractedServiceGroups, IndexContext, NavigatorContext,
+    PluginInventoryEntry, Service, ServicePlugin,
 };
-pub use versioning::{BranchInfo, BranchesContext, GraphCommit, ServicesAtRev, VersioningGraph};
+pub use versioning::ServicesAtRev;

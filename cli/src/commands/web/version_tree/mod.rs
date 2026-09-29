@@ -8,7 +8,6 @@ mod changes;
 mod lanes;
 mod model;
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -16,7 +15,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 pub use model::TreeView;
 use model::{build_tree, CommitIn, GenIn, TreeInput};
 
-use super::git::{git_stdout, is_worktree_dirty};
+use super::git::{activation_tips, git_stdout, is_worktree_dirty};
 use crate::utils::generation::{generation_links, ACTIVATION_LOG};
 use crate::utils::{
     current_generation_number, parse_generation_from_message, running_generation_number,
@@ -96,27 +95,6 @@ fn parse_reflog(raw: &str) -> Vec<(i64, String)> {
             Some((t, id.trim().to_string()))
         })
         .collect()
-}
-
-fn activation_tips(dir: &Path) -> HashMap<String, Vec<String>> {
-    let mut tips: HashMap<String, Vec<String>> = HashMap::new();
-    if let Ok(raw) = git_stdout(
-        dir,
-        &[
-            "for-each-ref",
-            "--format=%(objectname) %(refname:short)",
-            "refs/heads/activation_*",
-        ],
-    ) {
-        for line in raw.lines() {
-            if let Some((oid, name)) = line.split_once(' ') {
-                tips.entry(oid.to_string())
-                    .or_default()
-                    .push(name.to_string());
-            }
-        }
-    }
-    tips
 }
 
 const LOG_FORMAT: &str = "--pretty=format:%H %P%x00%s%x00%ct";

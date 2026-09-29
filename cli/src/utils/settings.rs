@@ -1,11 +1,11 @@
 //! Load and merge settings.toml (baked defaults + operator file).
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::Path;
 use toml_edit::DocumentMut;
 
 /// Load baked default settings (if any) and overlay the user file at `path`.
-pub fn load_or_default_settings(path: &PathBuf, _profile: &str) -> Result<DocumentMut> {
+pub fn load_or_default_settings(path: &Path) -> Result<DocumentMut> {
     let default_str = baked_default_settings()?;
     let mut doc = if !default_str.is_empty() {
         default_str.parse().context("parse default TOML")?
@@ -31,6 +31,14 @@ fn baked_default_settings() -> Result<String> {
             .unwrap_or("")
             .to_string()),
     }
+}
+
+/// `[disko] enabled` (ZFS disk layout instead of the plain filesystem).
+pub fn disko_enabled(doc: &DocumentMut) -> bool {
+    doc.get("disko")
+        .and_then(|t| t.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 fn merge_into(base: &mut DocumentMut, overlay: &DocumentMut) {

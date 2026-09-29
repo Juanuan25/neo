@@ -26,21 +26,13 @@ pub async fn run_helper_script(
     stdin_json: &str,
     env_extra: &[(&str, &str)],
 ) -> Result<HelperExecResult> {
-    run_script_with_timeout(script, stdin_json, env_extra, None, HELPER_TIMEOUT).await
+    run_script(script, stdin_json, env_extra, None, HELPER_TIMEOUT).await
 }
 
-/// Widget OAuth helper: optional `sudo -n -u <run_as>`, longer timeout, no fake HOME.
-pub async fn run_widget_script(
-    script: &Path,
-    stdin_json: &str,
-    env_extra: &[(&str, &str)],
-    run_as: Option<&str>,
-    timeout_dur: Duration,
-) -> Result<HelperExecResult> {
-    run_script_with_timeout(script, stdin_json, env_extra, run_as, timeout_dur).await
-}
-
-async fn run_script_with_timeout(
+/// Run a schema-declared script. With `run_as` (widget OAuth helpers) it runs via
+/// `sudo -n -u <run_as>` with the caller's env; otherwise under bash with a scrubbed
+/// env and a throwaway HOME.
+pub async fn run_script(
     script: &Path,
     stdin_json: &str,
     env_extra: &[(&str, &str)],
@@ -102,60 +94,27 @@ async fn run_script_with_timeout(
     }
 
     let run = async {
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        if let Some(mut out) = child.stdout.take() {
-            let mut buf = vec![0u8; 4096];
-            loop {
-                let n = out.read(&mut buf).await?;
-                if n == 0 {
-                    break;
-                }
-                if stdout.len() + n > MAX_STDOUT {
-                    stdout
-                        .extend_from_slice(&buf[..n.min(MAX_STDOUT.saturating_sub(stdout.len()))]);
-                    break;
-                }
-                stdout.extend_from_slice(&buf[..n]);
-            }
-        }
-        if let Some(mut err) = child.stderr.take() {
-            let mut buf = vec![0u8; 4096];
-            loop {
-                let n = err.read(&mut buf).await?;
-                if n == 0 {
-                    break;
-                }
-                if stderr.len() + n > MAX_STDERR {
-                    stderr
-                        .extend_from_slice(&buf[..n.min(MAX_STDERR.saturating_sub(stderr.len()))]);
-                    break;
-                }
-                stderr.extend_from_slice(&buf[..n]);
-            }
-        }
+        let stdout = read_capped(child.stdout.take(), MAX_STDOUT).await?;
+        let stderr = read_capped(child.stderr.take(), MAX_STDERR).await?;
         let status = child.wait().await?;
         Ok::<_, anyhow::Error>((status, stdout, stderr))
     };
 
-    match timeout(timeout_dur, run).await {
-        Ok(Ok((status, stdout, stderr))) => {
-            let _ = std::fs::remove_dir_all(&tmp);
-            Ok(HelperExecResult {
-                exit_code: status.code().unwrap_or(-1),
-                stdout: String::from_utf8_lossy(&stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&stderr).into_owned(),
-                timed_out: false,
-            })
-        }
+    let outcome = timeout(timeout_dur, run).await;
+    let _ = std::fs::remove_dir_all(&tmp);
+    match outcome {
+        Ok(Ok((status, stdout, stderr))) => Ok(HelperExecResult {
+            exit_code: status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&stderr).into_owned(),
+            timed_out: false,
+        }),
         Ok(Err(e)) => {
             let _ = child.kill().await;
-            let _ = std::fs::remove_dir_all(&tmp);
             Err(e)
         }
         Err(_) => {
             let _ = child.kill().await;
-            let _ = std::fs::remove_dir_all(&tmp);
             Ok(HelperExecResult {
                 exit_code: -1,
                 stdout: String::new(),
@@ -164,6 +123,30 @@ async fn run_script_with_timeout(
             })
         }
     }
+}
+
+/// Read `pipe` to EOF, keeping at most `max` bytes.
+async fn read_capped(
+    pipe: Option<impl tokio::io::AsyncRead + Unpin>,
+    max: usize,
+) -> std::io::Result<Vec<u8>> {
+    let mut out = Vec::new();
+    let Some(mut pipe) = pipe else {
+        return Ok(out);
+    };
+    let mut buf = vec![0u8; 4096];
+    loop {
+        let n = pipe.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        if out.len() + n > max {
+            out.extend_from_slice(&buf[..n.min(max.saturating_sub(out.len()))]);
+            break;
+        }
+        out.extend_from_slice(&buf[..n]);
+    }
+    Ok(out)
 }
 
 fn tempfile_dir() -> Result<std::path::PathBuf> {
@@ -290,11 +273,9 @@ mod tests {
             before.iter().any(|a| a.starts_with("PATH=")),
             "PATH= must be a sudo SETENV assignment, not an env(1) argument: {argv:?}"
         );
-        assert!(before.iter().any(|a| *a == "LANG=C.UTF-8"));
-        assert!(before.iter().any(|a| *a == "LC_ALL=C.UTF-8"));
-        assert!(before
-            .iter()
-            .any(|a| *a == "HERMES_HOME=/var/neo/DATA/AppData/hermes/.hermes"));
+        assert!(before.contains(&"LANG=C.UTF-8"));
+        assert!(before.contains(&"LC_ALL=C.UTF-8"));
+        assert!(before.contains(&"HERMES_HOME=/var/neo/DATA/AppData/hermes/.hermes"));
         assert_eq!(
             after,
             ["/nix/store/abc-neo-hermes-auth/bin/neo-hermes-auth"]

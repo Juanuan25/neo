@@ -2,49 +2,46 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::activation;
-use super::git_ops::dirty_state;
-use super::nix_repair;
-use super::structs::AppConfig;
-use super::util::{activation_id_ok, escape_html, repair_id_ok};
+use super::git::dirty_state;
+use super::ops::kind::id_timestamp;
+use super::ops::store::{find_recent_in_progress, gc_old_ops};
+use super::types::AppConfig;
+use super::util::{escape_html, op_id_ok};
+use crate::utils::OperationKind;
+
+/// Running op shown in the action bar (first match wins), with its button label and class.
+const SHOWN_OPS: [(OperationKind, &str, &str); 3] = [
+    (OperationKind::Activation, "Activating…", "btn-warning"),
+    (OperationKind::Update, "Updating…", "btn-info"),
+    (OperationKind::Repair, "Repairing store…", "btn-warning"),
+];
 
 /// Compact signature of action-bar state so the watcher only pushes on real changes.
 fn action_bar_signature(config: &AppConfig) -> String {
-    activation::gc_old_activations();
+    gc_old_ops();
     let busy = config.eval_busy.load(Ordering::Relaxed);
-    let act = activation::find_recent_in_progress_activation().unwrap_or_default();
-    let upd = activation::find_recent_in_progress_update().unwrap_or_default();
-    let rep = nix_repair::find_recent_in_progress_repair().unwrap_or_default();
+    let ops: Vec<String> = SHOWN_OPS
+        .iter()
+        .map(|(k, _, _)| find_recent_in_progress(*k).unwrap_or_default())
+        .collect();
     let d = dirty_state(config);
     let dirty = d.settings_dirty || d.worktree_dirty;
-    format!("{busy}|{act}|{upd}|{rep}|{dirty}")
+    format!("{busy}|{}|{dirty}", ops.join("|"))
 }
 
-fn progress_button(
-    kind_label: &str,
-    title: &str,
-    path_prefix: &str,
-    id: &str,
-    btn_class: &str,
-) -> String {
+fn progress_button(kind: OperationKind, kind_label: &str, id: &str, btn_class: &str) -> String {
+    let title = kind.title();
     let spinner = r#"<span class="loading loading-spinner loading-xs"></span>"#;
-    let id_ok = activation_id_ok(id) || repair_id_ok(id);
-    if !id_ok {
+    if !op_id_ok(id) {
         return format!(
             r#"<button class="btn btn-sm btn-soft {btn_class} gap-1.5" title="{title} in progress">{spinner}<span class="hidden sm:inline">{kind_label}</span></button>"#,
         );
     }
     let esc = escape_html(id);
-    // Timestamp suffix after activation_/update_ (or full id for repair).
-    let ts = id
-        .strip_prefix("activation_")
-        .or_else(|| id.strip_prefix("update_"))
-        .or_else(|| id.strip_prefix("repair_"))
-        .unwrap_or(id);
-    let ts = escape_html(ts);
+    let ts = escape_html(id_timestamp(id));
     // Title + fine timestamp; monitor response also OOBs #changes-modal-title.
     format!(
-        "<button class=\"btn btn-sm btn-soft {btn_class} gap-1.5\" title=\"{title} in progress — view output\" onclick=\"var m=document.getElementById('changes-modal');var t=m.querySelector('#changes-modal-title')||m.querySelector('h3');t.innerHTML='{title} <span class=\\'font-normal text-sm opacity-50\\'>{ts}</span>';m.showModal();htmx.ajax('GET','{path_prefix}/{esc}',{{target:'#changes-body',swap:'innerHTML'}})\">{spinner}<span class=\"hidden sm:inline\">{kind_label}</span></button>",
+        "<button class=\"btn btn-sm btn-soft {btn_class} gap-1.5\" title=\"{title} in progress — view output\" onclick=\"var m=document.getElementById('changes-modal');var t=m.querySelector('#changes-modal-title')||m.querySelector('h3');t.innerHTML='{title} <span class=\\'font-normal text-sm opacity-50\\'>{ts}</span>';m.showModal();htmx.ajax('GET','/op/monitor/{esc}',{{target:'#changes-body',swap:'innerHTML'}})\">{spinner}<span class=\"hidden sm:inline\">{kind_label}</span></button>",
     )
 }
 
@@ -54,24 +51,11 @@ fn progress_button(
 /// Uses a single dirty_state pass for pending + reset.
 fn render_action_bar_dynamic_inner(config: &AppConfig) -> String {
     let d = dirty_state(config);
-    let pending = if let Some(id) = activation::find_recent_in_progress_activation() {
-        progress_button(
-            "Activating…",
-            "Activation",
-            "/activation/monitor",
-            &id,
-            "btn-warning",
-        )
-    } else if let Some(id) = activation::find_recent_in_progress_update() {
-        progress_button("Updating…", "Update", "/update/monitor", &id, "btn-info")
-    } else if let Some(id) = nix_repair::find_recent_in_progress_repair() {
-        progress_button(
-            "Repairing store…",
-            "Nix store repair",
-            "/nix/repair/monitor",
-            &id,
-            "btn-warning",
-        )
+    let running = SHOWN_OPS.iter().find_map(|&(kind, label, class)| {
+        find_recent_in_progress(kind).map(|id| progress_button(kind, label, &id, class))
+    });
+    let pending = if let Some(button) = running {
+        button
     } else if d.worktree_dirty || d.settings_dirty {
         r#"<button class="btn btn-sm btn-soft btn-warning gap-1.5" title="Saved changes not yet activated — review" onclick="var m=document.getElementById('changes-modal');m.querySelector('h3').textContent='Pending changes';m.showModal();htmx.ajax('GET','/changes/summary',{target:'#changes-body',swap:'innerHTML'})"><span class="neo-unit-dot" data-state="partial" aria-hidden="true"></span>Changes<span class="hidden lg:inline">pending</span></button>"#.to_string()
     } else {

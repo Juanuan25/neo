@@ -6,11 +6,7 @@ use std::process::Command;
 use crate::utils::execute_command;
 
 pub fn docker_update(container: &str) -> Result<()> {
-    let cname = if container.starts_with("docker-") {
-        &container[7..]
-    } else {
-        container
-    };
+    let cname = container.strip_prefix("docker-").unwrap_or(container);
     println!("→ docker-update for container {}", cname);
 
     // Inspect the running image ref (resolves current tag/digest for :latest etc)
@@ -24,10 +20,10 @@ pub fn docker_update(container: &str) -> Result<()> {
     }
     println!("image: {}", img);
 
-    execute_command(&mut Command::new("docker").args(["pull", &img]))?;
+    execute_command(Command::new("docker").args(["pull", &img]))?;
 
     let unit = format!("docker-{}", cname);
-    execute_command(&mut Command::new("sudo").args([
+    execute_command(Command::new("sudo").args([
         "systemctl",
         "restart",
         &unit,

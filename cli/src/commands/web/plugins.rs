@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use toml_edit::DocumentMut;
 
-use super::types::{PluginFilter, PluginInventoryEntry, Service, ServicePlugin};
+use super::types::{PluginInventoryEntry, Service, ServicePlugin};
 
 /// Canonical flake URL so lock originals and settings.toml entries compare equal.
 /// `file:///path` and `git+file:///path` become `git+file:/path`.
@@ -163,16 +163,9 @@ pub fn plugin_badges(urls: &[String], all_plugin_urls: &[String]) -> Vec<Service
         .collect()
 }
 
-pub fn plugin_filters(inventory: &[PluginInventoryEntry]) -> Vec<PluginFilter> {
+pub fn plugin_filters(inventory: &[PluginInventoryEntry]) -> Vec<ServicePlugin> {
     let urls: Vec<String> = inventory.iter().map(|p| p.url.clone()).collect();
     plugin_badges(&urls, &urls)
-        .into_iter()
-        .map(|b| PluginFilter {
-            url: b.url,
-            label: b.label,
-            display: b.display,
-        })
-        .collect()
 }
 
 pub fn attach_service_plugin_badges(services: &mut [Service], inventory: &[PluginInventoryEntry]) {

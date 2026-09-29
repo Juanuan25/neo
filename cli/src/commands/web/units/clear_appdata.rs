@@ -5,17 +5,14 @@ use std::time::{Duration, Instant};
 
 use tokio::process::Command as AsyncCommand;
 
-use super::super::types::AppConfig;
+use super::super::schema_cache::extract_pane;
+use super::super::types::{AppConfig, OptionPaneContext};
 use super::super::util::{
     escape_attr, escape_html, status_err, status_ok, status_pulling, status_slot_oob, sudo_cmd,
 };
 use super::control::{
     broadcast_unit_update, schedule_unit_refresh_burst, unit_active_state_async, unit_name_valid,
 };
-
-pub fn is_clear_appdata_in_flight(config: &AppConfig, service: &str) -> bool {
-    config.clear_appdata_in_flight.contains(service)
-}
 
 /// Mark service as clearing appdata. Returns false if already in flight.
 pub fn try_begin_clear_appdata(config: &AppConfig, service: &str) -> bool {
@@ -64,14 +61,24 @@ pub fn clear_appdata_btn_oob(service: &str, appdata: &str, busy: bool) -> String
     }
 }
 
-fn clear_status_pulling(msg: &str) -> (String, String) {
-    status_pulling(msg)
-}
-fn clear_status_ok(msg: &str) -> (String, String) {
-    status_ok(msg)
-}
-fn clear_status_err(msg: &str) -> (String, String) {
-    status_err(msg)
+/// A service's pane plus its appdata path, both from trusted flake evaluation
+/// (never the client). Errors when evaluation fails or the path is missing / unsafe.
+pub async fn trusted_appdata(
+    config: &AppConfig,
+    service: &str,
+) -> Result<(OptionPaneContext, String), String> {
+    let pane = extract_pane(config, false, service).await;
+    if let Some(err) = pane.eval_error.error.as_ref() {
+        return Err(format!("eval failed: {err}"));
+    }
+    let appdata = match pane.appdata.as_ref() {
+        Some(p) if !p.is_empty() => p.clone(),
+        _ => return Err("no appdata path declared for this service".to_string()),
+    };
+    if !is_safe_appdata_path(&appdata, pane.appdata_root.as_deref()) {
+        return Err(format!("refusing unsafe appdata path: {appdata}"));
+    }
+    Ok((pane, appdata))
 }
 
 /// Whether `path` is safe to recursively delete as service appdata.
@@ -259,7 +266,7 @@ pub async fn run_clear_appdata(
     let to_restart = units_currently_running(&units).await;
 
     {
-        let (inner, title) = clear_status_pulling("stopping units…");
+        let (inner, title) = status_pulling("stopping units…");
         push(inner, title);
     }
 
@@ -272,7 +279,7 @@ pub async fn run_clear_appdata(
     }
 
     if let Err(e) = wait_units_stopped(&units, Duration::from_secs(90)).await {
-        let (inner, title) = clear_status_err(&e);
+        let (inner, title) = status_err(&e);
         // Best-effort: restore only units we stopped that were previously running.
         if !to_restart.is_empty() {
             start_units_best_effort(&to_restart, &config).await;
@@ -282,12 +289,12 @@ pub async fn run_clear_appdata(
     }
 
     {
-        let (inner, title) = clear_status_pulling("removing appdata…");
+        let (inner, title) = status_pulling("removing appdata…");
         push(inner, title);
     }
 
     if let Err(e) = rm_rf_path(&appdata).await {
-        let (inner, title) = clear_status_err(&e);
+        let (inner, title) = status_err(&e);
         // Best-effort restart so previously-running services are not left down.
         if !to_restart.is_empty() {
             start_units_best_effort(&to_restart, &config).await;
@@ -297,12 +304,12 @@ pub async fn run_clear_appdata(
     }
 
     if !to_restart.is_empty() {
-        let (inner, title) = clear_status_pulling("starting units…");
+        let (inner, title) = status_pulling("starting units…");
         push(inner, title);
         start_units_best_effort(&to_restart, &config).await;
     }
 
-    let (inner, title) = clear_status_ok("appdata cleared");
+    let (inner, title) = status_ok("appdata cleared");
     finish_clear_appdata(&service, &appdata, &units, &config, inner, title);
 }
 

@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -5,23 +6,69 @@ use rocket::{get, State};
 use rocket_ws::{Channel, Message, WebSocket};
 
 use crate::commands::web::action_bar::action_bar_oob_fragment;
-use crate::commands::web::structs::AppConfig;
+use crate::commands::web::types::AppConfig;
 use crate::commands::web::units::{
     extract_unit_state_from_oob, is_pull_in_flight, query_unit_states,
     unit_controls_oob_fragment_with_state, unit_name_valid,
 };
 
-/// ActiveState for every watched unit from ONE batched `systemctl show` (uncached:
-/// the pane wants ~500ms freshness). Sorted for stable push order.
-async fn watched_active_states(
-    watched: &std::collections::HashSet<String>,
-) -> Vec<(String, String)> {
-    let mut units: Vec<String> = watched.iter().cloned().collect();
-    units.sort();
-    let states = query_unit_states(&units).await;
-    let mut out: Vec<(String, String)> = states.into_iter().map(|(u, s)| (u, s.active)).collect();
-    out.sort();
-    out
+/// Per-connection unit watch: which units the pane shows and what was last pushed.
+#[derive(Default)]
+struct UnitWatch {
+    watched: HashSet<String>,
+    /// unit -> (ActiveState, pull in flight) last pushed (skip identical re-renders).
+    last: HashMap<String, (String, bool)>,
+}
+
+impl UnitWatch {
+    fn apply(&mut self, op: &str, units: Vec<String>) {
+        match op {
+            "watch_replace" => {
+                self.watched = units.into_iter().collect();
+                self.last.clear();
+            }
+            "watch" => self.watched.extend(units),
+            "unwatch" => {
+                for u in &units {
+                    self.watched.remove(u);
+                    self.last.remove(u);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Control fragments for watched units whose state changed since the last push.
+    /// One batched `systemctl show` (uncached: the pane wants ~500ms freshness).
+    async fn changed_fragments(&mut self, config: &AppConfig) -> Vec<String> {
+        let mut units: Vec<String> = self.watched.iter().cloned().collect();
+        units.sort();
+        let mut states: Vec<(String, String)> = query_unit_states(&units)
+            .await
+            .into_iter()
+            .map(|(u, s)| (u, s.active))
+            .collect();
+        states.sort();
+        let mut out = Vec::new();
+        for (u, active) in states {
+            let now = (active, is_pull_in_flight(config, &u));
+            if self.last.get(&u) != Some(&now) {
+                out.push(unit_controls_oob_fragment_with_state(&u, &now.0, now.1));
+                self.last.insert(u, now);
+            }
+        }
+        out
+    }
+
+    /// Keep `last` coherent with a broadcast fragment so the poller does not re-send it.
+    fn note_broadcast(&mut self, config: &AppConfig, fragment: &str) {
+        if let Some((unit, state)) = extract_unit_state_from_oob(fragment) {
+            if self.watched.contains(&unit) {
+                let pulling = is_pull_in_flight(config, &unit);
+                self.last.insert(unit, (state, pulling));
+            }
+        }
+    }
 }
 
 /// Parse a client WS control message.
@@ -61,131 +108,55 @@ pub async fn ws_status(ws: WebSocket, config: &State<Arc<AppConfig>>) -> Channel
     ws.channel(move |mut stream| {
         Box::pin(async move {
             use rocket::futures::{SinkExt, StreamExt};
-            use std::collections::{HashMap, HashSet};
 
             // Immediate action-bar snapshot so the navbar is correct before the watcher ticks.
-            if stream
-                .send(Message::Text(initial_bar.into()))
-                .await
-                .is_err()
-            {
+            if stream.send(Message::Text(initial_bar)).await.is_err() {
                 return Ok(());
             }
 
-            let mut watched: HashSet<String> = HashSet::new();
-            // unit -> last ActiveState string we pushed (skip identical re-renders)
-            let mut last_state: HashMap<String, String> = HashMap::new();
-            // unit -> last pull-in-flight flag we rendered (re-push controls when pull starts/ends
-            // even if ActiveState is unchanged).
-            let mut last_pulling: HashMap<String, bool> = HashMap::new();
+            let mut watch = UnitWatch::default();
             let mut tick = tokio::time::interval(Duration::from_millis(500));
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             // Don't fire immediately; first poll after 500ms (watch handlers push a snapshot).
             tick.tick().await;
 
             loop {
-                tokio::select! {
+                let fragments = tokio::select! {
                     client_msg = stream.next() => {
                         match client_msg {
                             Some(Ok(Message::Text(text))) => {
-                                if let Some((op, units)) = parse_ws_unit_command(&text) {
-                                    match op.as_str() {
-                                        "watch_replace" => {
-                                            watched.clear();
-                                            last_state.clear();
-                                            last_pulling.clear();
-                                            for u in units {
-                                                watched.insert(u);
-                                            }
-                                        }
-                                        "watch" => {
-                                            for u in units {
-                                                watched.insert(u);
-                                            }
-                                        }
-                                        "unwatch" => {
-                                            for u in &units {
-                                                watched.remove(u);
-                                                last_state.remove(u);
-                                                last_pulling.remove(u);
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                    // Immediate snapshot for newly watched units so the pane
-                                    // does not wait a full tick after open/reconnect.
-                                    // One batched systemctl call for all watched units.
-                                    let states = watched_active_states(&watched).await;
-                                    for (u, active) in states {
-                                        let pulling = is_pull_in_flight(&config, &u);
-                                        let prev = last_state.get(&u);
-                                        let prev_pull = last_pulling.get(&u).copied();
-                                        if prev.map(|p| p.as_str()) != Some(active.as_str())
-                                            || prev_pull != Some(pulling)
-                                        {
-                                            last_state.insert(u.clone(), active.clone());
-                                            last_pulling.insert(u.clone(), pulling);
-                                            let frag = unit_controls_oob_fragment_with_state(
-                                                &u, &active, pulling,
-                                            );
-                                            if stream
-                                                .send(Message::Text(frag.into()))
-                                                .await
-                                                .is_err()
-                                            {
-                                                return Ok(());
-                                            }
-                                        }
-                                    }
-                                }
+                                let Some((op, units)) = parse_ws_unit_command(&text) else {
+                                    continue;
+                                };
+                                watch.apply(&op, units);
+                                // Immediate snapshot for newly watched units so the pane
+                                // does not wait a full tick after open/reconnect.
+                                watch.changed_fragments(&config).await
                             }
                             Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
-                            Some(Ok(_)) => { /* ping/pong/binary — ignore */ }
+                            Some(Ok(_)) => continue, // ping/pong/binary — ignore
                         }
                     }
-                    _ = tick.tick(), if !watched.is_empty() => {
-                        // Live poll only for units this browser pane registered —
-                        // one batched systemctl call per tick, not one per unit.
-                        let states = watched_active_states(&watched).await;
-                        for (u, active) in states {
-                            let pulling = is_pull_in_flight(&config, &u);
-                            let changed =
-                                last_state.get(&u).map(|p| p.as_str()) != Some(active.as_str())
-                                    || last_pulling.get(&u).copied() != Some(pulling);
-                            if changed {
-                                last_state.insert(u.clone(), active.clone());
-                                last_pulling.insert(u.clone(), pulling);
-                                let frag = unit_controls_oob_fragment_with_state(
-                                    &u, &active, pulling,
-                                );
-                                if stream.send(Message::Text(frag.into())).await.is_err() {
-                                    return Ok(());
-                                }
-                            }
-                        }
+                    // Live poll only for units this browser pane registered.
+                    _ = tick.tick(), if !watch.watched.is_empty() => {
+                        watch.changed_fragments(&config).await
                     }
                     update = rx.recv() => {
                         match update {
                             Ok(fragment) => {
                                 // Action-bar + burst unit updates + pull progress from HTTP handlers.
-                                // Keep last_state coherent so the poller does not re-send
-                                // the same ActiveState right after a broadcast.
-                                if let Some((unit, state)) = extract_unit_state_from_oob(&fragment)
-                                {
-                                    if watched.contains(&unit) {
-                                        let pulling = is_pull_in_flight(&config, &unit);
-                                        last_state.insert(unit.clone(), state);
-                                        last_pulling.insert(unit, pulling);
-                                    }
-                                }
-                                if stream.send(Message::Text(fragment.into())).await.is_err() {
-                                    break;
-                                }
+                                watch.note_broadcast(&config, &fragment);
+                                vec![fragment]
                             }
                             // Lagged: drop missed messages and keep the socket alive.
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                         }
+                    }
+                };
+                for frag in fragments {
+                    if stream.send(Message::Text(frag)).await.is_err() {
+                        return Ok(());
                     }
                 }
             }
@@ -203,8 +174,9 @@ pub async fn ws_status(ws: WebSocket, config: &State<Arc<AppConfig>>) -> Channel
 /// own systemd unit and writes to disk, and the client picks up where it left off.
 #[get("/ws/op/<id>?<offset>")]
 pub fn ws_op(ws: WebSocket, id: &str, offset: Option<u64>) -> Channel<'static> {
-    use crate::commands::web::ops::monitor::{op_id_ok, read_state_message, LogCursor};
+    use crate::commands::web::ops::monitor::{read_state_message, LogCursor};
     use crate::commands::web::ops::store::log_path;
+    use crate::commands::web::util::op_id_ok;
 
     let id = id.to_string();
     ws.channel(move |mut stream| {

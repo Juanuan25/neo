@@ -4,21 +4,7 @@
   section ? null,
   configName ? null,
 }: let
-  f =
-    if builtins.isString neoFlake
-    then builtins.getFlake neoFlake
-    else neoFlake;
-  cfgNames = builtins.attrNames (f.nixosConfigurations or {});
-  cfg =
-    if configName != null
-    then configName
-    else if builtins.elem "homeserver" cfgNames
-    then "homeserver"
-    else if builtins.elem "neo" cfgNames
-    then "neo"
-    else if cfgNames != []
-    then builtins.head cfgNames
-    else null;
+  inherit (import ./extract_lib.nix {inherit neoFlake configName;}) f cfg tryOr;
   servicesOpt = f.nixosConfigurations.${cfg}.options.neo.services or {};
   coreSections = ["ssh" "volumes" "timeZone" "uid" "gid" "hostname" "hashedLinuxPassword" "plugins"];
   # These are the leaf sections that live under neo.core.* (for individual panes or dotted names in aggregate "core" pane).
@@ -47,13 +33,6 @@
     then getNeoConf section
     else {}
   );
-
-  tryOr = def: x: let
-    r = builtins.tryEval x;
-  in
-    if r.success
-    then r.value
-    else def;
 
   # --- Level-dependent ranking (sibling sort) ---
   # Ranks compete only among siblings at the same nesting level. Groups

@@ -17,23 +17,20 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
-use super::kind::{id_timestamp, OpKind};
+use super::kind::id_timestamp;
 use super::store::state_path;
-use crate::commands::web::util::{activation_id_ok, escape_attr, escape_html, repair_id_ok};
+use crate::commands::web::util::{escape_attr, escape_html, op_id_ok};
+use crate::utils::ops::OperationKind;
 
 /// Most bytes sent per log message.
 const MAX_CHUNK: usize = 256 * 1024;
 /// On a fresh connect (offset 0) only the last part of a huge log is sent.
 const INITIAL_TAIL: u64 = 512 * 1024;
 
-pub fn op_id_ok(id: &str) -> bool {
-    activation_id_ok(id) || repair_id_ok(id)
-}
-
 /// Mount point for the live monitor. `note` is an optional notice shown above the
 /// progress (e.g. "the web UI may restart").
 pub fn monitor_fragment(id: &str, note: Option<&str>) -> String {
-    let Some(kind) = OpKind::from_id(id).filter(|_| op_id_ok(id)) else {
+    let Some(kind) = OperationKind::from_id(id).filter(|_| op_id_ok(id)) else {
         return format!(
             r#"<div class="alert alert-error text-sm">invalid operation id: {}</div>"#,
             escape_html(id)
@@ -57,13 +54,13 @@ fn str_field<'a>(v: &'a Value, key: &str) -> &'a str {
 /// Raw op JSON (for change detection) plus the client `state` message.
 /// `None` when the op has no state file (garbage-collected or never started).
 pub fn read_state_message(id: &str) -> Option<(String, Value)> {
-    let kind = OpKind::from_id(id)?;
+    let kind = OperationKind::from_id(id)?;
     let raw = fs::read_to_string(state_path(id)).ok()?;
     let v: Value = serde_json::from_str(&raw).ok()?;
     Some((raw, state_message(kind, id, &v)))
 }
 
-pub fn state_message(kind: OpKind, id: &str, v: &Value) -> Value {
+pub fn state_message(kind: OperationKind, id: &str, v: &Value) -> Value {
     let status = str_field(v, "status");
     let phase = str_field(v, "phase");
     let steps = kind.steps();
@@ -83,12 +80,7 @@ pub fn state_message(kind: OpKind, id: &str, v: &Value) -> Value {
         "branch": str_field(v, "branch"),
         "generation": v.get("generation").cloned().unwrap_or(Value::Null),
         "mode": str_field(v, "mode"),
-        "kind": match kind {
-            OpKind::Activation => "activation",
-            OpKind::Update => "update",
-            OpKind::Repair => "repair",
-            OpKind::GenSwitch => "genswitch",
-        },
+        "kind": kind.prefix(),
         "steps": steps,
         "step": step,
     })
@@ -258,11 +250,11 @@ mod tests {
     #[test]
     fn state_message_steps() {
         let v = json!({"status": "success", "phase": "completed", "branch": "b"});
-        let m = state_message(OpKind::Activation, "activation_1", &v);
+        let m = state_message(OperationKind::Activation, "activation_1", &v);
         assert_eq!(m["step"], 5);
         assert_eq!(m["title"], "Activation");
         let v = json!({"status": "in_progress", "phase": "nix-store-verify-repair"});
-        let m = state_message(OpKind::Repair, "repair_1", &v);
+        let m = state_message(OperationKind::Repair, "repair_1", &v);
         assert_eq!(m["steps"].as_array().unwrap().len(), 0);
     }
 }

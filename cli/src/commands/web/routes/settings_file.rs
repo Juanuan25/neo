@@ -11,7 +11,7 @@ use rocket::{get, post, Request, State};
 
 use crate::commands::web::settings::file::{export_settings_toml, import_settings_toml};
 use crate::commands::web::settings::save::refresh_after_settings_change;
-use crate::commands::web::structs::AppConfig;
+use crate::commands::web::types::AppConfig;
 use crate::commands::web::util::{alert_html, AlertKind};
 
 pub struct TomlAttachment {

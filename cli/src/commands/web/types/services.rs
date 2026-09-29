@@ -34,7 +34,8 @@ pub struct Service {
     pub timers: Vec<String>,
 }
 
-/// One plugin that owns (or co-owns) a service. `url` is the identity; `label` may collide.
+/// One plugin (service badge / filter dropdown entry). `url` is the identity; `label`
+/// may collide, `display` disambiguates.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct ServicePlugin {
     pub url: String,
@@ -63,14 +64,6 @@ pub struct PluginInventoryEntry {
     pub services: Vec<String>,
 }
 
-/// Filter dropdown entry. `url` is the value; `display` disambiguates overlapping labels.
-#[derive(Serialize, Deserialize, Clone, Default)]
-pub struct PluginFilter {
-    pub url: String,
-    pub label: String,
-    pub display: String,
-}
-
 /// Shape returned by `extract_services.nix` before theme/error are filled in.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct ExtractedServiceGroups {
@@ -92,7 +85,7 @@ pub struct IndexContext {
     pub categories: Vec<String>,
     /// Plugin filter dropdown (only when at least one plugin service exists).
     #[serde(default)]
-    pub plugin_filters: Vec<PluginFilter>,
+    pub plugin_filters: Vec<ServicePlugin>,
     #[serde(default)]
     pub theme: String,
     #[serde(flatten)]

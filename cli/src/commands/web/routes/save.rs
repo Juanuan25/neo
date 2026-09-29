@@ -8,10 +8,22 @@ use toml_edit::{DocumentMut, Item, Table};
 use crate::commands::web::plugins::{plugins_from_doc, services_to_remove, strip_service_tables};
 use crate::commands::web::settings::json_to_toml_value;
 use crate::commands::web::settings::save::{
-    apply_payload_to_table, finish_save_state, load_settings_doc,
+    apply_payload_to_table, finish_save, load_settings_doc,
 };
-use crate::commands::web::structs::AppConfig;
-use crate::commands::web::util::{core_section_ok, service_name_ok};
+use crate::commands::web::types::AppConfig;
+use crate::commands::web::util::{core_section_ok, service_name_ok, CORE_NESTED_SECTIONS};
+
+/// Non-empty JSON object payload, if any.
+fn payload_map(payload: &serde_json::Value) -> Option<&serde_json::Map<String, serde_json::Value>> {
+    payload.as_object().filter(|m| !m.is_empty())
+}
+
+/// Table built from a payload (dotted keys nest); `None` when it ends up empty.
+fn payload_table(payload: &serde_json::Map<String, serde_json::Value>) -> Option<Table> {
+    let mut tbl = Table::new();
+    apply_payload_to_table(&mut tbl, payload);
+    (!tbl.is_empty()).then_some(tbl)
+}
 
 #[post("/save/<service>", data = "<payload>")]
 pub fn save_service(
@@ -30,47 +42,22 @@ pub fn save_service(
         Err(s) => return s,
     };
 
-    // Ensure [services] table exists
-    if !doc.contains_key("services") {
-        doc.insert("services", Item::Table(Table::new()));
-    }
-    let services_table = match doc.get_mut("services").and_then(|s| s.as_table_mut()) {
-        Some(t) => t,
-        None => return Status::InternalServerError,
+    let Some(services_table) = doc
+        .entry("services")
+        .or_insert(Item::Table(Table::new()))
+        .as_table_mut()
+    else {
+        return Status::InternalServerError;
     };
 
-    // Remove previous [services.<service>] entirely (clean slate for this service's overrides)
+    // Replace [services.<service>] entirely (clean slate for this service's overrides).
     services_table.remove(service);
-
-    // If payload has no keys (or not an object), we just removed -> done
-    let payload_map = match payload.as_object() {
-        Some(m) if !m.is_empty() => m,
-        _ => return finish_save_state(settings_path, &mut doc, config),
-    };
-
-    // Build new table for the service, handling dotted keys (e.g. "vpn.enabled", "foo.bar.baz")
-    let mut svc_table = Table::new();
-    apply_payload_to_table(&mut svc_table, payload_map);
-
-    if !svc_table.is_empty() {
-        services_table.insert(service, Item::Table(svc_table));
+    if let Some(tbl) = payload_map(&payload).and_then(payload_table) {
+        services_table.insert(service, Item::Table(tbl));
     }
 
-    finish_save_state(settings_path, &mut doc, config)
+    finish_save(settings_path, &mut doc, config)
 }
-
-/// Core sub-keys that live as tables/scalars under `[core]` (not top-level sections).
-const CORE_NESTED_SECTIONS: &[&str] = &[
-    "ssh",
-    "volumes",
-    "timeZone",
-    "uid",
-    "gid",
-    "hostname",
-    "hashedLinuxPassword",
-    "plugins",
-    "core",
-];
 
 #[post("/save-core/<section>", data = "<payload>")]
 pub async fn save_core_section(
@@ -90,7 +77,6 @@ pub async fn save_core_section(
     };
 
     let old_plugins = plugins_from_doc(&doc);
-    let is_core_nested = CORE_NESTED_SECTIONS.contains(&section);
 
     // Remove possible old top-level location (for renames/migrations).
     // For the aggregate "core" we merge deltas instead of replacing/removing.
@@ -98,15 +84,13 @@ pub async fn save_core_section(
         doc.remove(section);
     }
 
-    let status = if is_core_nested {
-        apply_core_nested_section(&mut doc, section, &payload)
-    } else {
+    if CORE_NESTED_SECTIONS.contains(&section) {
+        if let Err(s) = apply_core_nested_section(&mut doc, section, &payload) {
+            return s;
+        }
+    } else if let Some(tbl) = payload_map(&payload).and_then(payload_table) {
         // Top-level sections: neo-cli, disko
-        save_toplevel_section(&mut doc, section, &payload)
-    };
-
-    if let Err(s) = status {
-        return s;
+        doc.insert(section, Item::Table(tbl));
     }
 
     let new_plugins = plugins_from_doc(&doc);
@@ -128,12 +112,12 @@ pub async fn save_core_section(
         }
     }
 
-    finish_save_state(settings_path, &mut doc, config)
+    finish_save(settings_path, &mut doc, config)
 }
 
 /// Ensure `[core]` exists and return a mutable reference, or InternalServerError.
 fn ensure_core_table(doc: &mut DocumentMut) -> Result<&mut Table, Status> {
-    if !doc.contains_key("core") || !doc.get("core").map_or(false, |c| c.is_table()) {
+    if !doc.get("core").is_some_and(|c| c.is_table()) {
         doc.insert("core", Item::Table(Table::new()));
     }
     doc.get_mut("core")
@@ -141,103 +125,42 @@ fn ensure_core_table(doc: &mut DocumentMut) -> Result<&mut Table, Status> {
         .ok_or(Status::InternalServerError)
 }
 
-fn drop_empty_core(doc: &mut DocumentMut) {
-    if let Some(t) = doc.get("core").and_then(|c| c.as_table()) {
-        if t.is_empty() {
-            doc.remove("core");
-        }
-    }
-}
-
 fn apply_core_nested_section(
     doc: &mut DocumentMut,
     section: &str,
     payload: &serde_json::Value,
 ) -> Result<(), Status> {
-    let payload_map = match payload.as_object() {
-        Some(m) if !m.is_empty() => m,
-        _ => {
-            // Empty payload: clear nested key (when != "core"), drop empty [core].
-            {
-                let core_table = ensure_core_table(doc)?;
-                if section != "core" {
-                    core_table.remove(section);
-                }
-            }
-            drop_empty_core(doc);
-            return Ok(());
-        }
-    };
-
     let core_table = ensure_core_table(doc)?;
     if section != "core" {
         core_table.remove(section);
     }
+    let Some(payload_map) = payload_map(payload) else {
+        // Empty payload: nested key cleared above; drop an empty [core].
+        if core_table.is_empty() {
+            doc.remove("core");
+        }
+        return Ok(());
+    };
 
     // Scalars under core (timeZone, uid, …) arrive as a single-key payload named after the section.
     // Aggregate "core" and nested tables (ssh, volumes) use multi-key / table payloads.
     if payload_map.len() == 1 && payload_map.contains_key(section) {
-        if let Some(v) = payload_map.get(section) {
-            save_core_scalar(core_table, section, v);
+        // A single-key payload named "core" is not a scalar: no-op.
+        if section != "core" {
+            if let Some(tval) = payload_map.get(section).and_then(json_to_toml_value) {
+                core_table.insert(section, Item::Value(tval));
+            }
         }
     } else if section == "core" {
-        save_core_aggregate(core_table, payload_map);
-    } else {
-        save_core_subtable(core_table, section, payload_map);
-    }
-    Ok(())
-}
-
-/// Insert a scalar value under `[core].<section>` (timeZone, uid, gid, hostname, hashedLinuxPassword).
-fn save_core_scalar(core_table: &mut Table, section: &str, value: &serde_json::Value) {
-    if section == "core" {
-        // Single-key payload named "core" is not a scalar; treat as no-op (matches prior behavior).
-        return;
-    }
-    if let Some(tval) = json_to_toml_value(value) {
-        core_table.insert(section, Item::Value(tval));
-    }
-}
-
-/// Merge aggregate core deltas (scalars + dotted sub keys) into `[core]`.
-fn save_core_aggregate(
-    core_table: &mut Table,
-    payload_map: &serde_json::Map<String, serde_json::Value>,
-) {
-    let mut tbl = Table::new();
-    apply_payload_to_table(&mut tbl, payload_map);
-    for (k, item) in tbl.iter() {
-        core_table.insert(k, item.clone());
-    }
-}
-
-/// Insert a nested table under `[core].<section>` (ssh, volumes).
-fn save_core_subtable(
-    core_table: &mut Table,
-    section: &str,
-    payload_map: &serde_json::Map<String, serde_json::Value>,
-) {
-    let mut tbl = Table::new();
-    apply_payload_to_table(&mut tbl, payload_map);
-    if !tbl.is_empty() {
+        // Merge aggregate core deltas (scalars + dotted sub keys) into `[core]`.
+        let mut tbl = Table::new();
+        apply_payload_to_table(&mut tbl, payload_map);
+        for (k, item) in tbl.iter() {
+            core_table.insert(k, item.clone());
+        }
+    } else if let Some(tbl) = payload_table(payload_map) {
+        // Nested table under `[core].<section>` (ssh, volumes).
         core_table.insert(section, Item::Table(tbl));
-    }
-}
-
-/// Top-level sections outside `[core]`: neo-cli, disko.
-fn save_toplevel_section(
-    doc: &mut DocumentMut,
-    section: &str,
-    payload: &serde_json::Value,
-) -> Result<(), Status> {
-    let payload_map = match payload.as_object() {
-        Some(m) if !m.is_empty() => m,
-        _ => return Ok(()),
-    };
-    let mut tbl = Table::new();
-    apply_payload_to_table(&mut tbl, payload_map);
-    if !tbl.is_empty() {
-        doc.insert(section, Item::Table(tbl));
     }
     Ok(())
 }

@@ -1,13 +1,12 @@
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 
 use rocket::http::Status;
 use toml_edit::{DocumentMut, Table};
 
 use super::{insert_dotted, json_to_toml_item, json_to_toml_value};
 use crate::commands::web::action_bar::broadcast_action_bar;
-use crate::commands::web::structs::AppConfig;
+use crate::commands::web::types::AppConfig;
 use crate::utils::sort_document_alphabetically;
 
 pub fn load_settings_doc(path: &Path) -> Result<DocumentMut, Status> {
@@ -70,9 +69,4 @@ pub fn finish_save(path: &Path, doc: &mut DocumentMut, config: &AppConfig) -> St
     }
     refresh_after_settings_change(config);
     Status::Ok
-}
-
-/// Convenience when the caller holds `State<Arc<AppConfig>>`.
-pub fn finish_save_state(path: &Path, doc: &mut DocumentMut, config: &Arc<AppConfig>) -> Status {
-    finish_save(path, doc, config.as_ref())
 }

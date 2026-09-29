@@ -3,14 +3,14 @@
 use anyhow::{bail, Context, Result};
 
 use crate::utils::generation::{list_system_generations, switch_system_generation, GenerationMode};
-use crate::utils::ops::OperationLog;
+use crate::utils::ops::{OperationKind, OperationLog};
 
-pub fn generation_list(dry_run: bool) -> Result<()> {
+pub fn generation_list(dry_run: bool, sudo_cmd: &str) -> Result<()> {
     if dry_run {
         println!("DRY-RUN: list system generations");
         return Ok(());
     }
-    let list = list_system_generations();
+    let list = list_system_generations(sudo_cmd);
     if list.unavailable {
         if let Some(msg) = list.message {
             println!("{msg}");
@@ -37,50 +37,34 @@ pub fn generation_boot(n: u64, dry_run: bool, sudo_cmd: &str) -> Result<()> {
 }
 
 fn run_generation_op(n: u64, mode: GenerationMode, dry_run: bool, sudo_cmd: &str) -> Result<()> {
-    let mode_s = match mode {
-        GenerationMode::Switch => "switch",
-        GenerationMode::Boot => "boot",
-    };
+    let mode_s = mode.as_str();
     if dry_run {
         println!("DRY-RUN: generation {mode_s} {n}");
         return Ok(());
     }
 
     // When triggered from the web UI via systemd-run, track progress under /tmp/neo-activations.
-    let op = std::env::var("NEO_GENSWITCH_SUFFIX").ok().map(|suf| {
-        let log = OperationLog::new_generation(&suf);
-        log.write_state_extra(
-            "in_progress",
-            "starting",
-            None,
-            None,
-            Some(serde_json::json!({ "generation": n, "mode": mode_s })),
-        );
-        log
-    });
+    let op = std::env::var("NEO_GENSWITCH_SUFFIX")
+        .ok()
+        .map(|suf| OperationLog::new(OperationKind::Generation, &suf));
+    let track = |status: &str, phase: &str, err: Option<&str>| {
+        if let Some(op) = &op {
+            op.write_state_extra(
+                status,
+                phase,
+                err,
+                None,
+                Some(serde_json::json!({ "generation": n, "mode": mode_s })),
+            );
+        }
+    };
+    track("in_progress", "starting", None);
     let _tee = op.as_ref().and_then(|op| op.capture_stdio());
-
-    if let Some(ref op) = op {
-        op.write_state_extra(
-            "in_progress",
-            "nix-env-switch-generation",
-            None,
-            None,
-            Some(serde_json::json!({ "generation": n, "mode": mode_s })),
-        );
-    }
+    track("in_progress", "nix-env-switch-generation", None);
 
     match switch_system_generation(n, mode, sudo_cmd) {
         Ok(()) => {
-            if let Some(ref op) = op {
-                op.write_state_extra(
-                    "success",
-                    "completed",
-                    None,
-                    None,
-                    Some(serde_json::json!({ "generation": n, "mode": mode_s })),
-                );
-            }
+            track("success", "completed", None);
             match mode {
                 GenerationMode::Switch => println!("Switched to generation {n}"),
                 GenerationMode::Boot => println!("Boot default set to generation {n}"),
@@ -88,15 +72,7 @@ fn run_generation_op(n: u64, mode: GenerationMode, dry_run: bool, sudo_cmd: &str
             Ok(())
         }
         Err(e) => {
-            if let Some(ref op) = op {
-                op.write_state_extra(
-                    "failed",
-                    "switch-failed",
-                    Some(&e),
-                    None,
-                    Some(serde_json::json!({ "generation": n, "mode": mode_s })),
-                );
-            }
+            track("failed", "switch-failed", Some(&e));
             Err(anyhow::anyhow!(e)).with_context(|| format!("generation {mode_s} {n}"))
         }
     }

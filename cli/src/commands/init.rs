@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use toml_edit::DocumentMut;
 
 use crate::utils::{git_cmd, has_staged_changes, neo_cli_get, resolve_template, run_nix};
@@ -12,18 +12,17 @@ pub fn init(
     dry_run: bool,
     nix_cmd: &str,
 ) -> Result<()> {
+    let repo_url = neo_cli_get(config, profile, "repoUrl").filter(|s| !s.is_empty());
+    let bootstrap_method = neo_cli_get(config, profile, "bootstrapMethod").unwrap_or("template");
+    let template = resolve_template(config, profile);
+    let git_user_name = neo_cli_get(config, profile, "gitUserName").unwrap_or("Neo Bootstrap");
+    let git_user_email = neo_cli_get(config, profile, "gitUserEmail").unwrap_or("neo@local");
+    let default_branch = neo_cli_get(config, profile, "defaultBranch").unwrap_or("master");
     if dry_run {
         println!(
             "DRY-RUN: smart init at {} (profile={})",
             config_path, profile
         );
-        let repo_url = neo_cli_get(config, profile, "repoUrl").filter(|s| !s.is_empty());
-        let bootstrap_method =
-            neo_cli_get(config, profile, "bootstrapMethod").unwrap_or("template");
-        let template = resolve_template(config, profile);
-        let git_user_name = neo_cli_get(config, profile, "gitUserName").unwrap_or("Neo Bootstrap");
-        let git_user_email = neo_cli_get(config, profile, "gitUserEmail").unwrap_or("neo@local");
-        let default_branch = neo_cli_get(config, profile, "defaultBranch").unwrap_or("master");
         println!("  bootstrapMethod: {}", bootstrap_method);
         if let Some(url) = repo_url {
             println!("  repoUrl: {}", url);
@@ -56,16 +55,9 @@ pub fn init(
     }
 
     if !has_flake {
-        let repo_url = neo_cli_get(config, profile, "repoUrl").filter(|s| !s.is_empty());
-
-        let bootstrap_method =
-            neo_cli_get(config, profile, "bootstrapMethod").unwrap_or("template");
-
         if let (Some(url), "clone") = (repo_url, bootstrap_method) {
             git_cmd(config_path, &["clone", url, "."])?;
         } else {
-            let template = resolve_template(config, profile);
-
             run_nix(config_path, nix_cmd, &["flake", "init", "-t", &template])?;
             git_cmd(config_path, &["init"])?;
 
@@ -80,9 +72,6 @@ pub fn init(
         git_cmd(config_path, &["init"]).context("git init failed")?;
     }
 
-    let git_user_name = neo_cli_get(config, profile, "gitUserName").unwrap_or("Neo Bootstrap");
-    let git_user_email = neo_cli_get(config, profile, "gitUserEmail").unwrap_or("neo@local");
-    let default_branch = neo_cli_get(config, profile, "defaultBranch").unwrap_or("master");
     git_cmd(config_path, &["config", "user.name", git_user_name])?;
     git_cmd(config_path, &["config", "user.email", git_user_email])?;
     git_cmd(
@@ -90,14 +79,8 @@ pub fn init(
         &["config", "init.defaultBranch", default_branch],
     )?;
 
-    super::generate_hardware::generate_hardware(config_path, config, false, nix_cmd)?;
-    super::paste_settings::paste_settings(
-        config_path,
-        &PathBuf::from("settings.toml"),
-        config,
-        false,
-        nix_cmd,
-    )?;
+    super::generate_hardware::generate_hardware(config_path, config, false)?;
+    super::paste_settings::paste_settings(config_path, Path::new("settings.toml"), config, false)?;
 
     git_cmd(config_path, &["add", "."])?;
 

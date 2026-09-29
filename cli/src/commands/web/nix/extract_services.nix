@@ -1,64 +1,37 @@
 {neoFlake}: let
-  f =
-    if builtins.isString neoFlake
-    then builtins.getFlake neoFlake
-    else neoFlake;
-
+  inherit (import ./extract_lib.nix {inherit neoFlake;}) neoConfig safeList sortByRank;
   inventory = import ./extract_plugin_inventory.nix {inherit neoFlake;};
 
-  cfgNames = builtins.attrNames (f.nixosConfigurations or {});
-  cfg =
-    if builtins.elem "homeserver" cfgNames
-    then "homeserver"
-    else if builtins.elem "neo" cfgNames
-    then "neo"
-    else if cfgNames != []
-    then builtins.head cfgNames
-    else null;
-
-  names =
-    if cfg != null
-    then builtins.attrNames (f.nixosConfigurations.${cfg}.config.neo.services or {})
-    else [];
-
-  # A broken unit list on one service must not take down the whole grid.
-  safeList = v: let
-    r = builtins.tryEval (builtins.deepSeq v v);
-  in
-    if r.success && builtins.isList r.value
-    then r.value
-    else [];
+  configServices = neoConfig.services or {};
+  names = builtins.attrNames configServices;
 
   raw =
-    if cfg != null
-    then
-      map (n: let
-        svc = f.nixosConfigurations.${cfg}.config.neo.services.${n} or {};
-        meta = svc.meta or {};
-        enabled = svc.enabled or false;
-      in {
-        name = n;
-        inherit enabled;
-        # Runtime units for the grid status dot (installed services only).
-        units =
-          if enabled
-          then safeList (svc.systemdUnits or [])
-          else [];
-        timers =
-          if enabled
-          then safeList (svc.systemdTimers or [])
-          else [];
-        icon = meta.icon or null;
-        rank = meta.rank or null;
-        category =
-          if (meta.category or "") != ""
-          then meta.category
-          else "Other";
-        description = meta.description or "";
-        pluginUrls = inventory.owners.${n} or [];
-      })
-      names
-    else [];
+    map (n: let
+      svc = configServices.${n};
+      meta = svc.meta or {};
+      enabled = svc.enabled or false;
+    in {
+      name = n;
+      inherit enabled;
+      # Runtime units for the grid status dot (installed services only).
+      units =
+        if enabled
+        then safeList (svc.systemdUnits or [])
+        else [];
+      timers =
+        if enabled
+        then safeList (svc.systemdTimers or [])
+        else [];
+      icon = meta.icon or null;
+      rank = meta.rank or null;
+      category =
+        if (meta.category or "") != ""
+        then meta.category
+        else "Other";
+      description = meta.description or "";
+      pluginUrls = inventory.owners.${n} or [];
+    })
+    names;
 
   # Preferred category order for the services grid UI.
   categoryOrder = [
@@ -72,15 +45,6 @@
     "AI"
     "Other"
   ];
-
-  # Ranked first (asc), then unranked by name.
-  sortByRank = services: let
-    ranked = builtins.filter (s: s.rank != null) services;
-    unranked = builtins.filter (s: s.rank == null) services;
-    sortedRanked = builtins.sort (a: b: a.rank < b.rank) ranked;
-    sortedUnranked = builtins.sort (a: b: a.name < b.name) unranked;
-  in
-    sortedRanked ++ sortedUnranked;
 
   # Within a category: installed first, then available; each group by rank/name.
   sortServices = services: let

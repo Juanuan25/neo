@@ -10,6 +10,7 @@ pub mod utils;
 use crate::commands::{
     activate::activate,
     build::build,
+    docker_update::docker_update,
     edit::edit,
     generate_hardware::generate_hardware,
     generation::{generation_boot, generation_help, generation_list, generation_switch},
@@ -133,8 +134,8 @@ fn run(cli: Cli) -> Result<()> {
     };
 
     let etc_settings = PathBuf::from("/etc/neo/settings.toml");
-    let settings_path = if cli.settings.clone().map_or(false, |s| s.exists()) {
-        cli.settings.unwrap().clone()
+    let settings_path = if let Some(s) = cli.settings.filter(|s| s.exists()) {
+        s
     } else if etc_settings.exists() {
         etc_settings.clone()
     } else {
@@ -160,7 +161,7 @@ fn run(cli: Cli) -> Result<()> {
         return Ok(());
     }
 
-    let mut doc = load_or_default_settings(&settings_path, &profile)?;
+    let mut doc = load_or_default_settings(&settings_path)?;
     // Overrides apply to the active profile so a server command does not
     // inherit a laptop path written on the shared table.
     if let Some(v) = cli.neo_input {
@@ -190,10 +191,8 @@ fn run(cli: Cli) -> Result<()> {
     }
 
     match command {
-        Commands::GenerateHardware => generate_hardware(&config_path, &doc, dry_run, nix_cmd),
-        Commands::PasteSettings => {
-            paste_settings(&config_path, &settings_path, &doc, dry_run, nix_cmd)
-        }
+        Commands::GenerateHardware => generate_hardware(&config_path, &doc, dry_run),
+        Commands::PasteSettings => paste_settings(&config_path, &settings_path, &doc, dry_run),
         Commands::Init => init(&config_path, &doc, &profile, dry_run, nix_cmd),
         Commands::UpdateInputs => update_inputs(&config_path, dry_run, nix_cmd),
         Commands::Update { update_suffix } => update(
@@ -213,17 +212,13 @@ fn run(cli: Cli) -> Result<()> {
             sudo_cmd,
             activation_suffix.as_deref(),
         ),
-        Commands::Nuke => nuke(&config_path, dry_run, nix_cmd),
-        Commands::Web => web(&doc, web_settings_path, nix_cmd, &config_path),
+        Commands::Nuke => nuke(&config_path, dry_run),
+        Commands::Web => web(web_settings_path, nix_cmd, &config_path),
         Commands::Edit => edit(&config_path, dry_run),
-        Commands::Git => git(&config_path, dry_run),
-        Commands::Lg => git(&config_path, dry_run),
-        Commands::DockerUpdate { container } => {
-            use crate::commands::docker_update::docker_update;
-            docker_update(&container)
-        }
+        Commands::Git | Commands::Lg => git(&config_path, dry_run),
+        Commands::DockerUpdate { container } => docker_update(&container),
         Commands::Generation { action } => match action {
-            Some(GenerationAction::List) => generation_list(dry_run),
+            Some(GenerationAction::List) => generation_list(dry_run, sudo_cmd),
             Some(GenerationAction::Switch { n }) => generation_switch(n, dry_run, sudo_cmd),
             Some(GenerationAction::Boot { n }) => generation_boot(n, dry_run, sudo_cmd),
             None => generation_help(),

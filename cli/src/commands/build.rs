@@ -1,17 +1,18 @@
 use anyhow::Result;
 use toml_edit::DocumentMut;
 
-use crate::utils::{get_timestamp, git_cmd, has_staged_changes, run_nix, run_write_flake};
+use crate::utils::{
+    disko_enabled, get_timestamp, git_cmd, has_staged_changes, run_nix, run_write_flake,
+};
 
 pub fn build(config_path: &str, config: &DocumentMut, dry_run: bool, nix_cmd: &str) -> Result<()> {
-    let disko_enabled = config
-        .get("disko")
-        .and_then(|t| t.get("enabled"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
     let vm = format!(
         ".#nixosConfigurations.vm.config.system.build.{}",
-        if disko_enabled { "vmWithDisko" } else { "vm" }
+        if disko_enabled(config) {
+            "vmWithDisko"
+        } else {
+            "vm"
+        }
     );
     if dry_run {
         println!(

@@ -70,51 +70,53 @@ pub fn append_log(path: &Path, line: &str) {
     }
 }
 
+/// Background operation kind. Op ids are `<prefix>_<suffix>`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperationKind {
     Activation,
     Update,
     /// System generation switch/boot (web triggers via systemd-run).
     Generation,
+    /// Nix store verify/repair (web only).
+    Repair,
+}
+
+impl OperationKind {
+    const ALL: [Self; 4] = [
+        Self::Activation,
+        Self::Update,
+        Self::Generation,
+        Self::Repair,
+    ];
+
+    pub fn prefix(self) -> &'static str {
+        match self {
+            Self::Activation => "activation",
+            Self::Update => "update",
+            Self::Generation => "genswitch",
+            Self::Repair => "repair",
+        }
+    }
+
+    /// Kind from an op id prefix (`activation_…`, `update_…`, `genswitch_…`, `repair_…`).
+    pub fn from_id(id: &str) -> Option<Self> {
+        let (prefix, _) = id.split_once('_')?;
+        Self::ALL.into_iter().find(|k| k.prefix() == prefix)
+    }
 }
 
 pub struct OperationLog {
     id: String,
     suffix: String,
-    state_path: PathBuf,
-    log_path: PathBuf,
 }
 
 impl OperationLog {
     pub fn new(kind: OperationKind, suffix: &str) -> Self {
-        let prefix = match kind {
-            OperationKind::Activation => "activation",
-            OperationKind::Update => "update",
-            OperationKind::Generation => "genswitch",
-        };
-        let id = format!("{}_{}", prefix, suffix);
-        let dir = operations_dir();
-        let _ = fs::create_dir_all(&dir);
-        let state_path = dir.join(format!("{}.json", id));
-        let log_path = dir.join(format!("{}.log", id));
+        let _ = fs::create_dir_all(operations_dir());
         OperationLog {
-            id,
+            id: format!("{}_{}", kind.prefix(), suffix),
             suffix: suffix.to_string(),
-            state_path,
-            log_path,
         }
-    }
-
-    pub fn new_activation(suffix: &str) -> Self {
-        Self::new(OperationKind::Activation, suffix)
-    }
-
-    pub fn new_update(suffix: &str) -> Self {
-        Self::new(OperationKind::Update, suffix)
-    }
-
-    pub fn new_generation(suffix: &str) -> Self {
-        Self::new(OperationKind::Generation, suffix)
     }
 
     pub fn id(&self) -> &str {
@@ -123,14 +125,6 @@ impl OperationLog {
 
     pub fn suffix(&self) -> &str {
         &self.suffix
-    }
-
-    pub fn state_path(&self) -> &Path {
-        &self.state_path
-    }
-
-    pub fn log_path(&self) -> &Path {
-        &self.log_path
     }
 
     pub fn write_state(&self, status: &str, phase: &str, err: Option<&str>, branch: Option<&str>) {
@@ -181,7 +175,7 @@ impl OperationLog {
     pub fn init_for_web_trigger(&self, ts: &str) {
         self.write_state("in_progress", "triggered", None, None);
         let _ = fs::write(
-            &self.log_path,
+            log_path(&self.id),
             format!("{} triggered via web at {}\n", self.id, ts),
         );
     }
@@ -189,7 +183,7 @@ impl OperationLog {
     /// Mirror process stdout/stderr to this op's `.log` and the console.
     /// Keep the returned guard alive for the duration of the operation.
     pub fn capture_stdio(&self) -> Option<super::stdio_tee::StdioTee> {
-        super::stdio_tee::tee_stdio_to_log(&self.log_path).ok()
+        super::stdio_tee::tee_stdio_to_log(&log_path(&self.id)).ok()
     }
 }
 

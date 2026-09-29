@@ -10,24 +10,6 @@ pub enum RemediationAction {
     FlakeUpdate,
 }
 
-impl RemediationAction {
-    #[allow(dead_code)] // reserved for structured action lists in the UI
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::StoreVerifyRepair => "store-verify-repair",
-            Self::FlakeUpdate => "flake-update",
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::StoreVerifyRepair => "Repair Nix store",
-            Self::FlakeUpdate => "Update flake inputs",
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct RemediationPlan {
     pub actions: Vec<RemediationAction>,

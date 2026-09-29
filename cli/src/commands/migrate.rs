@@ -1,16 +1,16 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use toml_edit::{Array, DocumentMut, Item, Table};
 
 use crate::utils::{is_local_flake_ref, sort_document_alphabetically};
 
-pub fn migrate(config_path: &str, source_settings: &PathBuf, dry_run: bool) -> Result<()> {
+pub fn migrate(config_path: &str, source_settings: &Path, dry_run: bool) -> Result<()> {
     let live = PathBuf::from(config_path).join("settings.toml");
     let target = if live.exists() {
         live
     } else if source_settings.exists() {
-        source_settings.clone()
+        source_settings.to_path_buf()
     } else {
         live
     };
@@ -49,37 +49,29 @@ pub fn migrate(config_path: &str, source_settings: &PathBuf, dry_run: bool) -> R
 fn apply_migrations(doc: &mut DocumentMut) -> bool {
     let mut applied = get_applied(doc);
     let orig = applied.len();
-    for m in MIGRATIONS {
-        if applied.iter().any(|a| a == m.id) {
+    // Path renames first, then migrations that need more than renames.
+    let steps = MIGRATIONS
+        .iter()
+        .map(|m| (m.id, Step::Renames(m.renames)))
+        .chain(
+            CUSTOM_MIGRATIONS
+                .iter()
+                .map(|&(id, f)| (id, Step::Custom(f))),
+        );
+    for (id, step) in steps {
+        if applied.iter().any(|a| a == id) {
             continue;
         }
-        println!("Applying migration: {}", m.id);
-        apply_renames(doc, m.renames);
-        applied.push(m.id.to_string());
-    }
-    // Custom migrations that need more than path renames.
-    if !applied.iter().any(|a| a == "003-split-neo-service") {
-        println!("Applying migration: 003-split-neo-service");
-        migrate_003_split_neo_service(doc);
-        applied.push("003-split-neo-service".to_string());
-    }
-    if !applied
-        .iter()
-        .any(|a| a == "004-neo-cli-local-server-profiles")
-    {
-        println!("Applying migration: 004-neo-cli-local-server-profiles");
-        migrate_004_neo_cli_profiles(doc);
-        applied.push("004-neo-cli-local-server-profiles".to_string());
-    }
-    if !applied.iter().any(|a| a == "006-hermes-unified-llm") {
-        println!("Applying migration: 006-hermes-unified-llm");
-        migrate_006_hermes_unified_llm(doc);
-        applied.push("006-hermes-unified-llm".to_string());
-    }
-    if !applied.iter().any(|a| a == "007-neo-cli-profile-inputs") {
-        println!("Applying migration: 007-neo-cli-profile-inputs");
-        migrate_007_neo_cli_profile_inputs(doc);
-        applied.push("007-neo-cli-profile-inputs".to_string());
+        println!("Applying migration: {id}");
+        match step {
+            Step::Renames(renames) => {
+                for &(from, to) in renames {
+                    move_dotted(doc, from, to);
+                }
+            }
+            Step::Custom(f) => f(doc),
+        }
+        applied.push(id.to_string());
     }
     let did_new = applied.len() > orig;
     if did_new {
@@ -87,6 +79,26 @@ fn apply_migrations(doc: &mut DocumentMut) -> bool {
     }
     did_new
 }
+
+type MigrationFn = fn(&mut DocumentMut);
+
+enum Step {
+    Renames(&'static [KeyRename]),
+    Custom(MigrationFn),
+}
+
+const CUSTOM_MIGRATIONS: &[(&str, MigrationFn)] = &[
+    ("003-split-neo-service", migrate_003_split_neo_service),
+    (
+        "004-neo-cli-local-server-profiles",
+        migrate_004_neo_cli_profiles,
+    ),
+    ("006-hermes-unified-llm", migrate_006_hermes_unified_llm),
+    (
+        "007-neo-cli-profile-inputs",
+        migrate_007_neo_cli_profile_inputs,
+    ),
+];
 
 /// Delete retired [neo-service] and [nixos] tables.
 ///
@@ -417,10 +429,8 @@ fn set_applied(doc: &mut DocumentMut, applied: &[String]) {
     tbl.insert("applied", Item::Value(toml_edit::Value::Array(arr)));
 }
 
-struct KeyRename {
-    from: &'static str,
-    to: &'static str,
-}
+/// `(from, to)` dotted settings path; empty `to` deletes `from`.
+type KeyRename = (&'static str, &'static str);
 
 struct Migration {
     id: &'static str,
@@ -431,157 +441,85 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         id: "001-rename-legacy-neo-nixos-cli-and-core-keys",
         renames: &[
-            KeyRename {
-                from: "cli",
-                to: "neo-cli",
-            },
-            KeyRename {
-                from: "volumes",
-                to: "core.volumes",
-            },
-            KeyRename {
-                from: "ssh",
-                to: "core.ssh",
-            },
-            KeyRename {
-                from: "timeZone",
-                to: "core.timeZone",
-            },
-            KeyRename {
-                from: "uid",
-                to: "core.uid",
-            },
-            KeyRename {
-                from: "gid",
-                to: "core.gid",
-            },
-            KeyRename {
-                from: "device.hostname",
-                to: "core.hostname",
-            },
-            KeyRename {
-                from: "users.hashedPassword",
-                to: "core.hashedLinuxPassword",
-            },
-            KeyRename {
-                from: "device",
-                to: "",
-            },
-            KeyRename {
-                from: "users",
-                to: "",
-            },
+            ("cli", "neo-cli"),
+            ("volumes", "core.volumes"),
+            ("ssh", "core.ssh"),
+            ("timeZone", "core.timeZone"),
+            ("uid", "core.uid"),
+            ("gid", "core.gid"),
+            ("device.hostname", "core.hostname"),
+            ("users.hashedPassword", "core.hashedLinuxPassword"),
+            ("device", ""),
+            ("users", ""),
         ],
     },
     Migration {
         id: "002-backup-ssh-connection-keys",
         renames: &[
-            KeyRename {
-                from: "services.backup.remoteServer",
-                to: "services.backup.host",
-            },
-            KeyRename {
-                from: "services.backup.remoteUser",
-                to: "services.backup.user",
-            },
-            KeyRename {
-                from: "services.backup.sshExtraOptions",
-                to: "services.backup.extraOptions",
-            },
+            ("services.backup.remoteServer", "services.backup.host"),
+            ("services.backup.remoteUser", "services.backup.user"),
+            (
+                "services.backup.sshExtraOptions",
+                "services.backup.extraOptions",
+            ),
         ],
     },
     // OpenClaw is unmaintained and removed from Neo. Drop the whole table so
     // secrets (gatewayToken, telegramBotToken, *ApiKey, etc.) leave settings.toml.
     Migration {
         id: "005-remove-openclaw",
-        renames: &[KeyRename {
-            from: "services.openclaw",
-            to: "",
-        }],
+        renames: &[("services.openclaw", "")],
     },
 ];
 
-fn apply_renames(doc: &mut DocumentMut, renames: &[KeyRename]) {
-    for r in renames {
-        move_dotted(doc, r.from, r.to);
-    }
-}
-
 fn remove_dotted(doc: &mut DocumentMut, path: &str) -> Option<Item> {
     let parts: Vec<&str> = path.split('.').filter(|p| !p.is_empty()).collect();
-    match parts.as_slice() {
-        [] => None,
-        [key] => doc.remove(key),
-        [head, mid @ .., leaf] => {
-            let mut cur = doc.get_mut(head)?.as_table_mut()?;
-            for p in mid {
-                cur = cur.get_mut(p)?.as_table_mut()?;
-            }
-            cur.remove(leaf)
-        }
+    let (leaf, dirs) = parts.split_last()?;
+    let mut cur = doc.as_table_mut();
+    for p in dirs {
+        cur = cur.get_mut(p)?.as_table_mut()?;
     }
+    cur.remove(leaf)
 }
 
+/// Insert at a dotted path, creating tables on the way. A table value merges into an
+/// existing table; a non-table on the way aborts.
 fn insert_dotted(doc: &mut DocumentMut, path: &str, value: Item) {
     let parts: Vec<&str> = path.split('.').filter(|p| !p.is_empty()).collect();
-    match parts.as_slice() {
-        [] => {}
-        [key] => {
-            if let Some(ex) = doc.get_mut(key) {
-                if let (Some(d), Some(s)) = (ex.as_table_mut(), value.as_table()) {
-                    for (kk, vv) in s.iter() {
-                        d.insert(kk, vv.clone());
-                    }
-                    return;
-                }
-            }
-            doc.insert(key, value);
-        }
-        [head, mid @ .., leaf] => {
-            {
-                let top = doc.entry(head).or_insert(Item::Table(Table::new()));
-                if top.as_table_mut().is_none() {
-                    return;
-                }
-            }
-            let mut cur = match doc.get_mut(head).and_then(|i| i.as_table_mut()) {
-                Some(t) => t,
-                None => return,
-            };
-            for p in mid {
-                {
-                    let child = cur.entry(p).or_insert(Item::Table(Table::new()));
-                    if child.as_table_mut().is_none() {
-                        return;
-                    }
-                }
-                cur = match cur.get_mut(p).and_then(|i| i.as_table_mut()) {
-                    Some(t) => t,
-                    None => return,
-                };
-            }
-            if let Some(ex) = cur.get_mut(leaf) {
-                if let (Some(d), Some(s)) = (ex.as_table_mut(), value.as_table()) {
-                    for (kk, vv) in s.iter() {
-                        d.insert(kk, vv.clone());
-                    }
-                    return;
-                }
-            }
-            cur.insert(leaf, value);
-        }
+    let Some((leaf, dirs)) = parts.split_last() else {
+        return;
+    };
+    let mut cur = doc.as_table_mut();
+    for p in dirs {
+        cur = match cur
+            .entry(p)
+            .or_insert(Item::Table(Table::new()))
+            .as_table_mut()
+        {
+            Some(t) => t,
+            None => return,
+        };
     }
+    if let (Some(dst), Some(src)) = (
+        cur.get_mut(leaf).and_then(Item::as_table_mut),
+        value.as_table(),
+    ) {
+        for (k, v) in src.iter() {
+            dst.insert(k, v.clone());
+        }
+        return;
+    }
+    cur.insert(leaf, value);
 }
 
 fn move_dotted(doc: &mut DocumentMut, from: &str, to: &str) -> bool {
-    if let Some(val) = remove_dotted(doc, from) {
-        if to.is_empty() {
-            return true;
-        }
+    let Some(val) = remove_dotted(doc, from) else {
+        return false;
+    };
+    if !to.is_empty() {
         insert_dotted(doc, to, val);
-        return true;
     }
-    false
+    true
 }
 
 #[cfg(test)]

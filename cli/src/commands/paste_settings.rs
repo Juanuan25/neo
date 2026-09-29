@@ -1,16 +1,15 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use toml_edit::DocumentMut;
 
 use crate::utils::sort_document_alphabetically;
 
 pub fn paste_settings(
     config_path: &str,
-    settings_source: &PathBuf,
+    settings_source: &Path,
     config: &DocumentMut,
     dry_run: bool,
-    _nix_cmd: &str,
 ) -> Result<()> {
     if dry_run {
         println!(

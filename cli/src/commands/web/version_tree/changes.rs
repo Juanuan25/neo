@@ -2,13 +2,15 @@
 //! reconfigured and other top-level sections touched, from `settings.toml` at
 //! the commit and at its first parent. Blobs are read in one
 //! `git cat-file --batch` call for the whole window.
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use serde::Serialize;
 use toml_edit::{DocumentMut, Item};
+
+use crate::commands::web::diff::settings_semantic::{diff_settings_toml, Transition};
 
 #[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -27,66 +29,24 @@ pub struct ChangeSummary {
     pub enabled: usize,
 }
 
-struct Parsed {
-    services: BTreeMap<String, (bool, String)>,
-    sections: BTreeMap<String, String>,
-}
-
-fn parse(raw: &str) -> Option<Parsed> {
+fn enabled_count(raw: &str) -> Option<usize> {
     let doc: DocumentMut = raw.parse().ok()?;
-    let mut services = BTreeMap::new();
-    let mut sections = BTreeMap::new();
-    for (k, item) in doc.iter() {
-        if k == "services" {
-            if let Some(t) = item.as_table_like() {
-                for (name, svc) in t.iter() {
-                    let enabled = svc
-                        .as_table_like()
-                        .and_then(|t| t.get("enabled"))
-                        .and_then(Item::as_bool)
-                        .unwrap_or(false);
-                    let mut body = svc.clone();
-                    if let Some(t) = body.as_table_like_mut() {
-                        t.remove("enabled");
-                    }
-                    services.insert(name.to_string(), (enabled, normalize(&body)));
-                }
-            }
-        } else {
-            sections.insert(k.to_string(), normalize(item));
-        }
-    }
-    Some(Parsed { services, sections })
-}
-
-/// Formatting-insensitive rendering of an item (comments and whitespace are
-/// not changes).
-fn normalize(item: &Item) -> String {
-    match item {
-        Item::None => String::new(),
-        Item::Value(v) => v.to_string().trim().to_string(),
-        Item::Table(t) => {
-            let mut parts: Vec<String> = t
-                .iter()
-                .map(|(k, v)| format!("{k}={}", normalize(v)))
-                .collect();
-            parts.sort();
-            format!("{{{}}}", parts.join(","))
-        }
-        Item::ArrayOfTables(a) => {
-            let parts: Vec<String> = a
-                .iter()
-                .map(|t| normalize(&Item::Table(t.clone())))
-                .collect();
-            format!("[{}]", parts.join(","))
-        }
-    }
+    let services = doc.get("services").and_then(Item::as_table_like);
+    Some(services.map_or(0, |t| {
+        t.iter()
+            .filter(|(_, svc)| {
+                svc.as_table_like()
+                    .and_then(|t| t.get("enabled"))
+                    .and_then(Item::as_bool)
+                    .unwrap_or(false)
+            })
+            .count()
+    }))
 }
 
 /// Compare settings at a commit (`new`) with its parent (`old`).
 pub fn summarize(old: Option<&str>, new: &str) -> Option<ChangeSummary> {
-    let n = parse(new)?;
-    let enabled = n.services.values().filter(|(e, _)| *e).count();
+    let enabled = enabled_count(new)?;
     let Some(old) = old else {
         return Some(ChangeSummary {
             initial: true,
@@ -94,37 +54,22 @@ pub fn summarize(old: Option<&str>, new: &str) -> Option<ChangeSummary> {
             ..Default::default()
         });
     };
-    if old == new {
-        return Some(ChangeSummary {
-            unchanged: true,
-            enabled,
-            ..Default::default()
-        });
-    }
-    let o = parse(old)?;
+    let diff = diff_settings_toml(old, new).ok()?;
     let mut s = ChangeSummary {
         enabled,
         ..Default::default()
     };
-    let names: BTreeSet<&String> = n.services.keys().chain(o.services.keys()).collect();
-    for name in names {
-        let a = o.services.get(name);
-        let b = n.services.get(name);
-        let was = a.is_some_and(|(e, _)| *e);
-        let is = b.is_some_and(|(e, _)| *e);
-        match (was, is) {
-            (false, true) => s.added.push(name.clone()),
-            (true, false) => s.removed.push(name.clone()),
-            (true, true) if a.map(|x| &x.1) != b.map(|x| &x.1) => s.changed.push(name.clone()),
-            _ => {}
+    for svc in diff.services {
+        match svc.transition() {
+            Transition::Enabled => s.added.push(svc.name),
+            Transition::Disabled => s.removed.push(svc.name),
+            Transition::Unchanged if svc.before == Some(true) && !svc.changes.is_empty() => {
+                s.changed.push(svc.name)
+            }
+            Transition::Unchanged => {}
         }
     }
-    let keys: BTreeSet<&String> = n.sections.keys().chain(o.sections.keys()).collect();
-    for k in keys {
-        if n.sections.get(k) != o.sections.get(k) {
-            s.sections.push(k.clone());
-        }
-    }
+    s.sections = diff.sections.into_iter().map(|sec| sec.name).collect();
     s.unchanged =
         s.added.is_empty() && s.removed.is_empty() && s.changed.is_empty() && s.sections.is_empty();
     Some(s)

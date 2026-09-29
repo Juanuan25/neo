@@ -133,12 +133,17 @@ fn render_header(set: &ChangeSet, opts: &RenderOptions) -> String {
 // Semantic settings summary
 // ---------------------------------------------------------------------------
 
-fn pane_link(url: &str, label: &str, title: &str) -> String {
-    let url = escape_attr(url);
+/// Service / section name linking to its settings pane (`{base}/{name}`), or plain
+/// text when the name is not a valid pane id.
+fn pane_link(base: &str, name: &str, linkable: bool) -> String {
+    if !linkable {
+        return format!(r#"<span class="neo-sem-name">{}</span>"#, escape_html(name));
+    }
+    let url = escape_attr(&format!("{base}/{name}"));
     format!(
         r##"<a class="neo-sem-name" href="{url}" hx-get="{url}" hx-target="#config-content" hx-swap="innerHTML" hx-push-url="true" data-diff-close-modal title="{title}">{label}</a>"##,
-        title = escape_attr(title),
-        label = escape_html(label),
+        title = escape_attr(&format!("Open {name} settings")),
+        label = escape_html(name),
     )
 }
 
@@ -236,18 +241,11 @@ fn render_semantic(sem: &Result<SettingsDiff, String>) -> String {
             } else {
                 String::new()
             };
-            let name = if service_name_ok(&svc.name) {
-                pane_link(
-                    &format!("/configuration/option/{}", svc.name),
-                    &svc.name,
-                    &format!("Open {} settings", svc.name),
-                )
-            } else {
-                format!(
-                    r#"<span class="neo-sem-name">{}</span>"#,
-                    escape_html(&svc.name)
-                )
-            };
+            let name = pane_link(
+                "/configuration/option",
+                &svc.name,
+                service_name_ok(&svc.name),
+            );
             s.push_str(&format!(
                 r#"<li class="neo-sem-item"><div class="neo-sem-item-head">{name}{badge}{opt_badge}</div>{}</li>"#,
                 changes_table(&svc.changes)
@@ -258,18 +256,7 @@ fn render_semantic(sem: &Result<SettingsDiff, String>) -> String {
     if !diff.sections.is_empty() {
         s.push_str(r#"<div class="neo-sem-title">Other settings</div><ul class="neo-sem-list">"#);
         for sec in &diff.sections {
-            let name = if core_section_ok(&sec.name) {
-                pane_link(
-                    &format!("/configuration/core/{}", sec.name),
-                    &sec.name,
-                    &format!("Open {} settings", sec.name),
-                )
-            } else {
-                format!(
-                    r#"<span class="neo-sem-name">{}</span>"#,
-                    escape_html(&sec.name)
-                )
-            };
+            let name = pane_link("/configuration/core", &sec.name, core_section_ok(&sec.name));
             s.push_str(&format!(
                 r#"<li class="neo-sem-item"><div class="neo-sem-item-head">{name}<span class="neo-sem-badge" data-kind="changed"><span aria-hidden="true">~</span> {}</span></div>{}</li>"#,
                 plural(sec.changes.len(), "option", "options"),

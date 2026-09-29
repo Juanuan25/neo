@@ -7,7 +7,7 @@
 //!
 //! Field resolution: `neo-cli.<profile>.<key>` then `neo-cli.<key>` then caller default.
 
-use toml_edit::DocumentMut;
+use toml_edit::{DocumentMut, Item};
 
 pub const PROFILE_LOCAL: &str = "local";
 pub const PROFILE_SERVER: &str = "server";
@@ -70,21 +70,16 @@ pub fn neo_cli_get<'a>(doc: &'a DocumentMut, profile: &str, key: &str) -> Option
     profile_str(doc, profile, key).or_else(|| shared_str(doc, key))
 }
 
+fn non_empty_str(item: &Item) -> Option<&str> {
+    item.as_str().map(str::trim).filter(|s| !s.is_empty())
+}
+
 fn profile_str<'a>(doc: &'a DocumentMut, profile: &str, key: &str) -> Option<&'a str> {
-    doc.get("neo-cli")?
-        .get(profile)?
-        .get(key)?
-        .as_str()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+    non_empty_str(doc.get("neo-cli")?.get(profile)?.get(key)?)
 }
 
 fn shared_str<'a>(doc: &'a DocumentMut, key: &str) -> Option<&'a str> {
-    doc.get("neo-cli")?
-        .get(key)?
-        .as_str()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
+    non_empty_str(doc.get("neo-cli")?.get(key)?)
 }
 
 /// A flake ref that only exists on the machine that has this checkout.
@@ -169,7 +164,7 @@ pub fn resolve_template(doc: &DocumentMut, profile: &str) -> String {
 
 /// Write one string into `neo-cli.<profile>.<key>` (CLI overrides).
 pub fn set_profile_str(doc: &mut DocumentMut, profile: &str, key: &str, value: &str) {
-    use toml_edit::{Item, Table};
+    use toml_edit::Table;
     let cli = doc.entry("neo-cli").or_insert(Item::Table(Table::new()));
     let Some(cli_tbl) = cli.as_table_mut() else {
         return;
@@ -184,9 +179,7 @@ pub fn set_profile_str(doc: &mut DocumentMut, profile: &str, key: &str, value: &
 /// Resolve configPath for the active profile with sensible fallbacks.
 pub fn resolve_config_path(doc: &DocumentMut, profile: &str) -> String {
     if let Some(p) = neo_cli_get(doc, profile, "configPath") {
-        if !p.is_empty() {
-            return p.to_string();
-        }
+        return p.to_string();
     }
     if profile == PROFILE_SERVER {
         "/var/neo/DATA/AppData/configuration".to_string()

@@ -4,50 +4,25 @@ use rocket::response::content::{RawHtml, RawJson};
 use rocket::{get, post, State};
 use rocket_dyn_templates::Template;
 
-use crate::commands::web::activation;
 use crate::commands::web::diff::{render_changes, RenderOptions};
-use crate::commands::web::git_ops::{
-    activation_branch_for_rev, activation_graph, collect_changes, enabled_services_at_rev,
-    is_worktree_dirty, list_activation_branches, resolve_rev, settings_semantic, DiffRange,
+use crate::commands::web::git::{
+    activation_branch_for_rev, collect_changes, enabled_services_at_rev, is_worktree_dirty,
+    resolve_rev, settings_semantic, DiffRange,
 };
 use crate::commands::web::settings::save::refresh_after_settings_change;
-use crate::commands::web::structs::{AppConfig, BranchesContext};
-use crate::commands::web::trigger::{trigger_activation, trigger_generation_switch};
+use crate::commands::web::trigger::{
+    is_activation_in_progress, trigger_activation, trigger_generation_switch,
+};
+use crate::commands::web::types::AppConfig;
 use crate::commands::web::util::{
     branch_ok, config_dir, escape_html, generation_ok, rev_ok, sudo_cmd,
 };
 use crate::commands::web::version_tree;
-use crate::utils::{git_cmd, list_system_generations_with_sudo, GenerationMode};
+use crate::utils::{git_cmd, GenerationMode};
 
-/// Shared branches / versioning partial (used by `/branches` and `/configuration/versioning`).
-pub fn branches_template(config: &AppConfig) -> Template {
-    let dir = config_dir(&config.settings_path);
-    let dir_str = dir.to_str().unwrap_or(".");
-    let brs = list_activation_branches(dir_str);
-    Template::render(
-        "branches",
-        BranchesContext {
-            graph: String::new(),
-            branches: brs,
-        },
-    )
-}
-
-/// Legacy partial alias (same fragment as `/configuration/versioning` with HX-Request).
-#[get("/branches")]
-pub fn branches(config: &State<Arc<AppConfig>>) -> Template {
-    branches_template(config)
-}
-
-/// Structured activation commit graph for the D3 UI.
-#[get("/versioning/graph")]
-pub fn versioning_graph(config: &State<Arc<AppConfig>>) -> RawJson<String> {
-    let dir = config_dir(&config.settings_path);
-    let dir_str = dir.to_str().unwrap_or(".");
-    let g = activation_graph(dir_str);
-    RawJson(serde_json::to_string(&g).unwrap_or_else(|_| {
-        r#"{"commits":[],"head":"","currentBranch":"","dirty":false}"#.to_string()
-    }))
+/// Versioning tab partial (`/configuration/versioning`); data loads client-side.
+pub fn branches_template() -> Template {
+    Template::render("branches", serde_json::json!({}))
 }
 
 /// Unified version tree: config commits + system generations on one timeline
@@ -128,60 +103,13 @@ pub fn versioning_diff(config: &State<Arc<AppConfig>>, a: &str, b: &str) -> RawH
     }
 }
 
-/// List NixOS system generations.
-#[get("/versioning/generations")]
-pub fn versioning_generations() -> RawJson<String> {
-    let list = list_system_generations_with_sudo(&sudo_cmd());
-    RawJson(
-        serde_json::to_string(&list)
-            .unwrap_or_else(|_| r#"{"generations":[],"unavailable":true}"#.to_string()),
-    )
-}
-
-#[post("/git/switch/<br>")]
-pub fn git_switch(config: &State<Arc<AppConfig>>, br: &str) -> RawHtml<String> {
-    if !branch_ok(br) {
-        return RawHtml(format!(
-            r#"<span class="text-error text-xs">invalid branch: {}</span>"#,
-            escape_html(br)
-        ));
-    }
-    if activation::is_activation_in_progress() {
-        return RawHtml(
-            "<span class=\"text-error text-xs\">activation in progress — cannot switch</span>"
-                .to_string(),
-        );
-    }
-    let dir = config_dir(&config.settings_path);
-    let dir_str = dir.to_str().unwrap_or(".");
-    if is_worktree_dirty(dir_str) {
-        return RawHtml(
-            "<span class=\"text-error text-xs\">working tree dirty — commit, revert, or discard changes first</span>"
-                .to_string(),
-        );
-    }
-    match git_cmd(dir_str, &["switch", br]) {
-        Ok(()) => {
-            refresh_after_settings_change(&config);
-            RawHtml(format!(
-                r#"<span class="text-success text-xs">switched to {}</span>"#,
-                escape_html(br)
-            ))
-        }
-        Err(e) => RawHtml(format!(
-            r#"<span class="text-error text-xs">switch failed: {}</span>"#,
-            escape_html(&e.to_string())
-        )),
-    }
-}
-
 /// Checkout activation branch tip for rev, then trigger full activate.
 #[post("/versioning/activate/<rev>")]
 pub fn versioning_activate(config: &State<Arc<AppConfig>>, rev: &str) -> RawHtml<String> {
     if !rev_ok(rev) {
         return RawHtml(r#"<span class="text-error text-xs">invalid rev</span>"#.to_string());
     }
-    if activation::is_activation_in_progress() {
+    if is_activation_in_progress() {
         return RawHtml(
             "<span class=\"text-error text-xs\">activation already in progress</span>".to_string(),
         );
@@ -220,9 +148,9 @@ pub fn versioning_activate(config: &State<Arc<AppConfig>>, rev: &str) -> RawHtml
             escape_html(&e.to_string())
         ));
     }
-    refresh_after_settings_change(&config);
+    refresh_after_settings_change(config);
     // Reuse existing oneshot activate path (returns HTML for monitor).
-    trigger_activation(&config)
+    trigger_activation()
 }
 
 #[post("/versioning/generations/<n>/switch")]

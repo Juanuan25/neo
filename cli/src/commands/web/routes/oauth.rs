@@ -10,8 +10,9 @@ use rocket::serde::json::Json;
 use rocket::{post, State};
 use serde::{Deserialize, Serialize};
 
-use crate::commands::web::helper_exec::run_widget_script;
-use crate::commands::web::structs::{AppConfig, OptionSchema, OptionUiOauth};
+use crate::commands::web::helper_exec::run_script;
+use crate::commands::web::schema_cache::load_options;
+use crate::commands::web::types::{AppConfig, OptionSchema, OptionUiOauth};
 use crate::commands::web::util::{
     oauth_env_key_ok, oauth_session_ok, option_name_ok, provider_id_ok, run_as_ok, service_name_ok,
 };
@@ -56,35 +57,6 @@ fn timeout_for(action: &str) -> Duration {
     }
 }
 
-async fn load_options(
-    config: &AppConfig,
-    is_core: bool,
-    name: &str,
-) -> Result<Vec<OptionSchema>, String> {
-    {
-        let cache = config.schema_cache.read().await;
-        if let Some(opts) = cache.get(is_core, name) {
-            return Ok(opts);
-        }
-    }
-    let mut ev = config.evaluator.lock().await;
-    let pane = if is_core {
-        ev.extract_neo_section(name).await
-    } else {
-        ev.extract_service_options(name).await
-    };
-    drop(ev);
-    if let Some(err) = pane.eval_error.error {
-        return Err(err);
-    }
-    let opts = pane.options;
-    {
-        let mut cache = config.schema_cache.write().await;
-        cache.put(is_core, name, opts.clone());
-    }
-    Ok(opts)
-}
-
 fn find_oauth<'a>(options: &'a [OptionSchema], option: &str) -> Option<&'a OptionUiOauth> {
     options
         .iter()
@@ -123,16 +95,12 @@ pub async fn run_oauth(
         return err_resp(Status::BadRequest, "invalid action");
     }
     let provider = req.provider.as_deref().unwrap_or("").trim();
-    if matches!(req.action.as_str(), "status" | "login" | "refresh") {
-        if !provider_id_ok(provider) {
-            return err_resp(Status::BadRequest, "invalid provider");
-        }
+    if matches!(req.action.as_str(), "status" | "login" | "refresh") && !provider_id_ok(provider) {
+        return err_resp(Status::BadRequest, "invalid provider");
     }
     let session = req.session.as_deref().unwrap_or("").trim();
-    if matches!(req.action.as_str(), "poll" | "submit") {
-        if !oauth_session_ok(session) {
-            return err_resp(Status::BadRequest, "invalid session");
-        }
+    if matches!(req.action.as_str(), "poll" | "submit") && !oauth_session_ok(session) {
+        return err_resp(Status::BadRequest, "invalid session");
     }
 
     let options = match load_options(config, req.is_core, &req.service).await {
@@ -190,7 +158,7 @@ pub async fn run_oauth(
     }
     let stdin = serde_json::Value::Object(stdin_map).to_string();
 
-    let result = match run_widget_script(
+    let result = match run_script(
         script_path,
         &stdin,
         &env_refs,

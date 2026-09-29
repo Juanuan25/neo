@@ -10,8 +10,6 @@ use super::super::util::InFlightSet;
 
 #[derive(Clone, Debug)]
 pub struct AppConfig {
-    pub nix_cmd: String,
-    pub neo_input: String,
     pub settings_path: PathBuf,
     pub evaluator: Arc<AsyncMutex<super::super::nix::NixEvaluator>>,
     /// Shared with the persistent nix repl: true while an evaluation/refresh is in flight.

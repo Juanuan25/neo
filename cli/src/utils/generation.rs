@@ -45,6 +45,16 @@ pub enum GenerationMode {
     Boot,
 }
 
+impl GenerationMode {
+    /// `switch-to-configuration` action (also the CLI subcommand).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GenerationMode::Switch => "switch",
+            GenerationMode::Boot => "boot",
+        }
+    }
+}
+
 fn parse_generation_from_link(link: &Path) -> Option<u64> {
     let name = link.file_name()?.to_str()?;
     let name = name.strip_prefix("system-")?.strip_suffix("-link")?;
@@ -123,14 +133,8 @@ fn run_list_generations(sudo_cmd: Option<&str>) -> Result<String, String> {
 
 /// List system profile generations via `nix-env --list-generations` (correct dates).
 /// Tries without sudo first, then `sudo -n` (web / homeserver path).
-pub fn list_system_generations() -> GenerationsList {
-    list_system_generations_with_sudo("sudo")
-}
-
-/// Same as [`list_system_generations`] but with an explicit sudo binary path.
-pub fn list_system_generations_with_sudo(sudo_cmd: &str) -> GenerationsList {
-    let profile = Path::new(SYSTEM_PROFILE);
-    if !profile.exists() && !profile.is_symlink() {
+pub fn list_system_generations(sudo_cmd: &str) -> GenerationsList {
+    if !system_profile_available() {
         return GenerationsList {
             generations: vec![],
             unavailable: true,
@@ -158,7 +162,7 @@ pub fn list_system_generations_with_sudo(sudo_cmd: &str) -> GenerationsList {
         .collect();
 
     // Newest first (match previous UI).
-    generations.sort_by(|a, b| b.number.cmp(&a.number));
+    generations.sort_by_key(|g| std::cmp::Reverse(g.number));
 
     // Ensure current marker if nix-env omitted it but profile points somewhere.
     if !generations.iter().any(|g| g.is_current) {
@@ -431,10 +435,7 @@ pub fn switch_system_generation(
             "switch-to-configuration missing for generation {n}"
         ));
     };
-    let action = match mode {
-        GenerationMode::Switch => "switch",
-        GenerationMode::Boot => "boot",
-    };
+    let action = mode.as_str();
     let stc_s = stc.to_string_lossy();
     println!("→ {sudo_cmd} -n {stc_s} {action}");
     let status = Command::new(sudo_cmd)

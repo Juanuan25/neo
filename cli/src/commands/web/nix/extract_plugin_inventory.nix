@@ -2,27 +2,7 @@
 # Pair inputs.pluginN with that input's flake.lock original URL — never with live
 # config.neo.core.plugins (settings can change on save before write-flake).
 {neoFlake}: let
-  f =
-    if builtins.isString neoFlake
-    then builtins.getFlake neoFlake
-    else neoFlake;
-
-  tryOr = def: x: let
-    r = builtins.tryEval x;
-  in
-    if r.success
-    then r.value
-    else def;
-
-  cfgNames = builtins.attrNames (f.nixosConfigurations or {});
-  cfg =
-    if builtins.elem "homeserver" cfgNames
-    then "homeserver"
-    else if builtins.elem "neo" cfgNames
-    then "neo"
-    else if cfgNames != []
-    then builtins.head cfgNames
-    else null;
+  inherit (import ./extract_lib.nix {inherit neoFlake;}) f cfg tryOr;
 
   startsWith = prefix: s:
     prefix

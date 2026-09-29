@@ -12,17 +12,12 @@ use crate::commands::web::ops::store::{
 };
 use crate::commands::web::types::AppConfig;
 use crate::commands::web::util::{nix_bin, sudo_cmd};
-use crate::utils::{get_timestamp, OPERATIONS_DIR};
-
-/// Most recent in-progress repair within the last hour, if any.
-pub fn find_recent_in_progress_repair() -> Option<String> {
-    find_recent_in_progress("repair_")
-}
+use crate::utils::{get_timestamp, OperationKind, OPERATIONS_DIR};
 
 /// Start a background store verify+repair. Returns the operation id.
 /// Single-flight: if one is already running, returns that id instead of starting another.
 pub fn start_store_verify_repair(config: Arc<AppConfig>) -> String {
-    if let Some(existing) = find_recent_in_progress_repair() {
+    if let Some(existing) = find_recent_in_progress(OperationKind::Repair) {
         return existing;
     }
     let ts = get_timestamp();
@@ -116,13 +111,13 @@ async fn run_store_verify_repair(config: Arc<AppConfig>, id: String) {
                 match ev.refresh().await {
                     Ok(()) => {
                         append_log(&log_file, "nix repl refreshed after store repair");
-                        let nav = ev.extract_proxied_services().await;
-                        if let Some(err) = nav.eval_error.error.as_ref() {
-                            append_log(&log_file, &format!("warm-up still reports error: {err}"));
-                        } else {
-                            append_log(&log_file, "warm-up navigator extract succeeded");
+                        match ev.warm_up().await {
+                            Some(err) => append_log(
+                                &log_file,
+                                &format!("warm-up still reports error: {err}"),
+                            ),
+                            None => append_log(&log_file, "warm-up navigator extract succeeded"),
                         }
-                        let _ = ev.extract_neo_theme().await;
                     }
                     Err(e) => {
                         append_log(&log_file, &format!("repl refresh failed: {e:#}"));

@@ -1,11 +1,11 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use toml_edit::DocumentMut;
 
 use super::save::refresh_after_settings_change;
 use crate::commands::paste_settings::paste_settings;
 use crate::commands::web::git::git_stdout;
-use crate::commands::web::structs::AppConfig;
+use crate::commands::web::types::AppConfig;
 use crate::commands::web::util::config_dir;
 
 /// Discard pending changes: restore every tracked file (index + worktree) to `HEAD`,
@@ -28,10 +28,9 @@ pub fn discard_pending_changes(config: &AppConfig) -> Result<(), String> {
         )?;
     } else {
         let dir_str = dir.to_str().unwrap_or(".");
-        let source = PathBuf::from("/etc/neo/settings.toml");
+        let source = Path::new("/etc/neo/settings.toml");
         let dummy = DocumentMut::new();
-        paste_settings(dir_str, &source, &dummy, false, &config.nix_cmd)
-            .map_err(|e| e.to_string())?;
+        paste_settings(dir_str, source, &dummy, false).map_err(|e| e.to_string())?;
     }
     refresh_after_settings_change(config);
     Ok(())

@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 
 use crate::utils::{
     format_command, get_current_branch, git_cmd, has_staged_changes, record_generation_in_commit,
-    resolve_suffix, run_nix, run_write_flake, OperationLog,
+    resolve_suffix, run_nix, run_write_flake, OperationKind, OperationLog,
 };
 
 pub fn activate(
@@ -21,7 +21,7 @@ pub fn activate(
     }
 
     let suffix = resolve_suffix(activation_suffix, "NEO_ACTIVATION_SUFFIX");
-    let op = OperationLog::new_activation(&suffix);
+    let op = OperationLog::new(OperationKind::Activation, &suffix);
     op.write_state("in_progress", "starting", None, None);
     let _tee = op.capture_stdio();
 
@@ -46,6 +46,12 @@ pub fn activate(
 
     op.step("git-add", || git_cmd(config_path, &["add", "."]))?;
     let has_changes = has_staged_changes(config_path);
+    // The build branch only carries the commit over to the activation branch.
+    let drop_build_branch = || {
+        if has_changes {
+            let _ = git_cmd(config_path, &["branch", "-D", &build_branch]);
+        }
+    };
     if has_changes {
         op.step("build-branch", || {
             git_cmd(config_path, &["switch", "-C", &build_branch])
@@ -59,9 +65,7 @@ pub fn activate(
     }
 
     if let Err(e) = git_cmd(config_path, &["switch", "-C", &activation_branch]) {
-        if has_changes {
-            let _ = git_cmd(config_path, &["branch", "-D", &build_branch]);
-        }
+        drop_build_branch();
         let _ = git_cmd(config_path, &["switch", &orig_branch]);
         op.write_state("failed", "branch-failed", Some(&e.to_string()), None);
         return Err(e);
@@ -89,22 +93,16 @@ pub fn activate(
     }
 
     op.write_state("in_progress", "pre-rebuild", None, Some(&activation_branch));
-    let _ = Command::new(sudo_cmd)
-        .current_dir(config_path)
-        .args([
-            "systemctl",
-            "reset-failed",
-            "nixos-rebuild-switch-to-configuration.service",
-        ])
-        .status();
-    let _ = Command::new(sudo_cmd)
-        .current_dir(config_path)
-        .args([
-            "systemctl",
-            "stop",
-            "nixos-rebuild-switch-to-configuration.service",
-        ])
-        .status();
+    for action in ["reset-failed", "stop"] {
+        let _ = Command::new(sudo_cmd)
+            .current_dir(config_path)
+            .args([
+                "systemctl",
+                action,
+                "nixos-rebuild-switch-to-configuration.service",
+            ])
+            .status();
+    }
     let mut rebuild = Command::new(sudo_cmd);
     rebuild
         .current_dir(config_path)
@@ -118,35 +116,14 @@ pub fn activate(
         .with_context(|| format!("failed to spawn: {display}"))?;
     let code = status.code().unwrap_or(-1);
 
-    if code == 4 {
-        println!(
-            "warning: nixos-rebuild exited 4 (success with warnings). The switch succeeded and the new generation is active. This is common for user session reloads (dbus-broker), non-critical service restarts, etc. Treating as success for activation tracking."
-        );
-        if has_changes {
-            let _ = git_cmd(config_path, &["branch", "-D", &build_branch]);
-        }
-        op.write_state(
-            "success",
-            "completed-with-warnings",
-            None,
-            Some(&activation_branch),
-        );
-        record_gen_after_activate(config_path, &activation_branch, has_changes);
-        println!(
-            "Activated using branch {} (exit code 4 / warnings)",
-            activation_branch
-        );
-        return Ok(());
-    }
-
-    if !status.success() {
+    // Exit 4: the switch succeeded with warnings (common for user session reloads).
+    let warnings = code == 4;
+    drop_build_branch();
+    if !status.success() && !warnings {
         println!(
             "nixos-rebuild failed (non-zero exit {}). Keeping {} branch+checkout (check 'systemctl --failed' and logs).",
             code, activation_branch
         );
-        if has_changes {
-            let _ = git_cmd(config_path, &["branch", "-D", &build_branch]);
-        }
         op.write_state(
             "failed",
             "rebuild-failed",
@@ -155,13 +132,27 @@ pub fn activate(
         );
         anyhow::bail!("Command failed: {display} (exit {code})");
     }
-
-    if has_changes {
-        let _ = git_cmd(config_path, &["branch", "-D", &build_branch]);
+    if warnings {
+        println!(
+            "warning: nixos-rebuild exited 4 (success with warnings). The switch succeeded and the new generation is active. This is common for user session reloads (dbus-broker), non-critical service restarts, etc. Treating as success for activation tracking."
+        );
     }
-    op.write_state("success", "completed", None, Some(&activation_branch));
+    let phase = if warnings {
+        "completed-with-warnings"
+    } else {
+        "completed"
+    };
+    op.write_state("success", phase, None, Some(&activation_branch));
     record_gen_after_activate(config_path, &activation_branch, has_changes);
-    println!("Activated using branch {}", activation_branch);
+    println!(
+        "Activated using branch {}{}",
+        activation_branch,
+        if warnings {
+            " (exit code 4 / warnings)"
+        } else {
+            ""
+        }
+    );
     Ok(())
 }
 

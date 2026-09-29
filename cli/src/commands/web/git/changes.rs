@@ -78,10 +78,17 @@ fn count_lines(hunks: &[Hunk]) -> (u32, u32) {
     (a, d)
 }
 
-/// Content of an untracked file as an all-added change.
-fn untracked_change(root: &Path, rel: &str) -> FileChange {
-    let mut fc = FileChange {
-        path: rel.to_string(),
+/// Top level of the work tree containing `dir` (`dir` itself if git cannot tell).
+fn toplevel(dir: &Path) -> PathBuf {
+    git(dir, &["rev-parse", "--show-toplevel"])
+        .map(|s| PathBuf::from(s.trim()))
+        .unwrap_or_else(|_| dir.to_path_buf())
+}
+
+/// Untracked file entry without content.
+fn untracked_stub(path: &str) -> FileChange {
+    FileChange {
+        path: path.to_string(),
         old_path: None,
         status: FileStatus::Untracked,
         additions: 0,
@@ -91,7 +98,12 @@ fn untracked_change(root: &Path, rel: &str) -> FileChange {
         mode_change: None,
         hunks: Vec::new(),
         omitted: None,
-    };
+    }
+}
+
+/// Content of an untracked file as an all-added change.
+fn untracked_change(root: &Path, rel: &str) -> FileChange {
+    let mut fc = untracked_stub(rel);
     let full: PathBuf = root.join(rel);
     let meta = match std::fs::symlink_metadata(&full) {
         Ok(m) => m,
@@ -243,9 +255,7 @@ pub fn collect_changes(dir: &Path, range: DiffRange) -> Result<ChangeSet> {
             ],
         )
         .context("git status")?;
-        let root = git(dir, &["rev-parse", "--show-toplevel"])
-            .map(|s| PathBuf::from(s.trim()))
-            .unwrap_or_else(|_| dir.to_path_buf());
+        let root = toplevel(dir);
         let untracked: Vec<String> = parse_status_z(&status)
             .into_iter()
             .filter(|e| e.is_untracked())
@@ -255,7 +265,7 @@ pub fn collect_changes(dir: &Path, range: DiffRange) -> Result<ChangeSet> {
             if i >= MAX_UNTRACKED_FILES {
                 files.push(FileChange {
                     omitted: Some("Too many untracked files — contents not loaded.".into()),
-                    ..untracked_change_stub(&path)
+                    ..untracked_stub(&path)
                 });
                 continue;
             }
@@ -265,21 +275,6 @@ pub fn collect_changes(dir: &Path, range: DiffRange) -> Result<ChangeSet> {
 
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(ChangeSet { files })
-}
-
-fn untracked_change_stub(path: &str) -> FileChange {
-    FileChange {
-        path: path.to_string(),
-        old_path: None,
-        status: FileStatus::Untracked,
-        additions: 0,
-        deletions: 0,
-        binary: false,
-        similarity: None,
-        mode_change: None,
-        hunks: Vec::new(),
-        omitted: None,
-    }
 }
 
 /// `settings.toml` at a rev (`""` when absent there).
@@ -305,10 +300,7 @@ pub fn settings_semantic(
             let old = worktree_base(dir)
                 .map(|b| settings_at(dir, &b))
                 .unwrap_or_default();
-            let path = git(dir, &["rev-parse", "--show-toplevel"])
-                .map(|s| PathBuf::from(s.trim()))
-                .unwrap_or_else(|_| dir.to_path_buf())
-                .join(SETTINGS_FILE);
+            let path = toplevel(dir).join(SETTINGS_FILE);
             match std::fs::read_to_string(&path) {
                 Ok(new) => Ok((old, new)),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok((old, String::new())),

@@ -17,10 +17,8 @@ pub fn json_to_toml_value(v: &serde_json::Value) -> Option<Value> {
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 Some(Value::from(i))
-            } else if let Some(f) = n.as_f64() {
-                Some(Value::from(f))
             } else {
-                None
+                n.as_f64().map(Value::from)
             }
         }
         serde_json::Value::String(s) => Some(Value::from(s.clone())),

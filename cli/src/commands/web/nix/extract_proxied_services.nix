@@ -1,23 +1,5 @@
 {neoFlake}: let
-  f =
-    if builtins.isString neoFlake
-    then builtins.getFlake neoFlake
-    else neoFlake;
-
-  cfgNames = builtins.attrNames (f.nixosConfigurations or {});
-  cfg =
-    if builtins.elem "homeserver" cfgNames
-    then "homeserver"
-    else if builtins.elem "neo" cfgNames
-    then "neo"
-    else if cfgNames != []
-    then builtins.head cfgNames
-    else null;
-
-  neoConfig =
-    if cfg != null
-    then (f.nixosConfigurations.${cfg}.config.neo or {})
-    else {};
+  inherit (import ./extract_lib.nix {inherit neoFlake;}) neoConfig safeList sortByRank theme;
   services = neoConfig.services or {};
   swag = services.swag or {};
   domain = swag.domain or null;
@@ -30,14 +12,6 @@
     (v.enabled or false) && (v.subdomain or null) != null;
 
   proxiedNames = builtins.filter isProxied (builtins.attrNames services);
-
-  # A broken unit list on one service must not take down the whole sidebar.
-  safeList = v: let
-    r = builtins.tryEval (builtins.deepSeq v v);
-  in
-    if r.success && builtins.isList r.value
-    then r.value
-    else [];
 
   raw =
     map (n: let
@@ -54,21 +28,7 @@
       iframeCompatible = meta.iframeCompatible or true;
     })
     proxiedNames;
-
-  ranked = builtins.filter (s: s.rank != null) raw;
-  unranked = builtins.filter (s: s.rank == null) raw;
-
-  sortedRanked = builtins.sort (a: b: a.rank < b.rank) ranked;
-  sortedUnranked = builtins.sort (a: b: a.name < b.name) unranked;
-  theme = let
-    t = (services.neo or {}).theme or "lofi";
-  in
-    if builtins.isString t
-    then t
-    else "lofi";
 in {
-  domain = domain;
-  hostname = hostname;
-  theme = theme;
-  services = sortedRanked ++ sortedUnranked;
+  inherit domain hostname theme;
+  services = sortByRank raw;
 }

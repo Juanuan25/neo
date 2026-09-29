@@ -18,12 +18,13 @@ use super::super::units::{
     wait_units_stopped,
 };
 use super::super::util::{
-    escape_attr, escape_html, status_err, status_ok, status_pulling, status_slot_oob, sudo_cmd,
+    escape_attr, escape_html, rsync_bin, status_err, status_ok, status_pulling, status_slot_oob,
+    sudo_cmd,
 };
 use super::render::{self, BTN_SECONDARY};
 use super::{
     create_snapshot, dataset_for_path, format_epoch_utc, list_snapshots, now_epoch, now_ts,
-    rsync_bin, snapshot_has_path, zfs_mounts, Snapshot, ZfsMount,
+    snapshot_has_path, zfs_mounts, Snapshot, ZfsMount,
 };
 
 /// Units the restore must never stop: stopping them kills the web UI running the job.

@@ -2,35 +2,20 @@
 //! Used by activation, update, genswitch, and nix-store repair jobs.
 
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::utils::ops::{self, append_log as ops_append_log, write_op_state};
+pub use crate::utils::ops::{append_log, log_path, state_path};
+use crate::utils::ops::{operations_dir, write_op_state, OperationKind};
 
-pub fn ops_dir() -> PathBuf {
-    ops::operations_dir()
-}
-
-pub fn state_path(id: &str) -> PathBuf {
-    ops::state_path(id)
-}
-
-pub fn log_path(id: &str) -> PathBuf {
-    ops::log_path(id)
-}
-
-/// Write op state (thin wrapper over shared [`write_op_state`]).
+/// Write op state (no branch / start time / extra fields).
 pub fn write_state(id: &str, status: &str, phase: &str, err: Option<&str>) {
     write_op_state(id, status, phase, err, None, None, None);
 }
 
-pub fn append_log(path: &Path, line: &str) {
-    ops_append_log(path, line);
-}
-
-/// Find the most recent in-progress op whose id starts with `prefix` (within last hour).
-pub fn find_recent_in_progress(prefix: &str) -> Option<String> {
-    let dir = ops_dir();
+/// Most recent in-progress op of `kind` (within the last hour).
+pub fn find_recent_in_progress(kind: OperationKind) -> Option<String> {
+    let prefix = format!("{}_", kind.prefix());
+    let dir = operations_dir();
     if !dir.exists() {
         return None;
     }
@@ -39,7 +24,7 @@ pub fn find_recent_in_progress(prefix: &str) -> Option<String> {
         for e in rd.flatten() {
             let name = e.file_name();
             let name = name.to_string_lossy();
-            if !(name.ends_with(".json") && name.starts_with(prefix)) {
+            if !(name.ends_with(".json") && name.starts_with(&prefix)) {
                 continue;
             }
             let Ok(meta) = e.metadata() else { continue };
@@ -64,7 +49,7 @@ pub fn find_recent_in_progress(prefix: &str) -> Option<String> {
             if v.get("status").and_then(|x| x.as_str()) != Some("in_progress") {
                 continue;
             }
-            if best.as_ref().map_or(true, |&(_, bt)| t > bt) {
+            if best.as_ref().is_none_or(|&(_, bt)| t > bt) {
                 let id = name.trim_end_matches(".json").to_string();
                 best = Some((id, t));
             }
@@ -77,7 +62,7 @@ pub fn find_recent_in_progress(prefix: &str) -> Option<String> {
 /// Called from the action-bar watcher and once at op trigger start — not from
 /// per-poll monitor/status/log fragment builders (those are on the hot path).
 pub fn gc_old_ops() {
-    let dir = ops_dir();
+    let dir = operations_dir();
     if !dir.exists() {
         return;
     }

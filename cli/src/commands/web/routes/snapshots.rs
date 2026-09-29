@@ -4,8 +4,8 @@ use std::sync::Arc;
 use rocket::response::content::RawHtml;
 use rocket::{get, post, State};
 
-use crate::commands::web::structs::{AppConfig, OptionPaneContext};
-use crate::commands::web::units::{is_safe_appdata_path, try_begin_clear_appdata};
+use crate::commands::web::types::AppConfig;
+use crate::commands::web::units::{trusted_appdata, try_begin_clear_appdata};
 use crate::commands::web::util::{
     escape_html, service_name_ok, status_err, status_ok, status_pulling,
 };
@@ -14,28 +14,6 @@ use crate::commands::web::zfs::service::{
     RestoreJob,
 };
 use crate::commands::web::zfs::{create_snapshot, data, snapshot_name_ok};
-
-/// Trusted appdata path for a service (from flake evaluation, never the client).
-async fn service_pane(
-    service: &str,
-    config: &State<Arc<AppConfig>>,
-) -> Result<(OptionPaneContext, String), String> {
-    let pane = {
-        let mut ev = config.evaluator.lock().await;
-        ev.extract_service_options(service).await
-    };
-    if let Some(err) = pane.eval_error.error.as_ref() {
-        return Err(format!("eval failed: {err}"));
-    }
-    let appdata = match pane.appdata.as_ref() {
-        Some(p) if !p.is_empty() => p.clone(),
-        _ => return Err("no appdata path declared for this service".to_string()),
-    };
-    if !is_safe_appdata_path(&appdata, pane.appdata_root.as_deref()) {
-        return Err(format!("refusing unsafe appdata path: {appdata}"));
-    }
-    Ok((pane, appdata))
-}
 
 fn out_err(service: &str, msg: &str) -> RawHtml<String> {
     let (inner, title) = status_err(msg);
@@ -48,7 +26,7 @@ pub async fn service_snapshots(service: &str, config: &State<Arc<AppConfig>>) ->
     if !service_name_ok(service) {
         return RawHtml(String::new());
     }
-    match service_pane(service, config).await {
+    match trusted_appdata(config, service).await {
         Ok((_, appdata)) => {
             let busy = config.clear_appdata_in_flight.contains(service);
             RawHtml(render_service_snapshots(service, &appdata, busy, false).await)
@@ -70,7 +48,7 @@ pub async fn service_snapshot_create(
     if !service_name_ok(service) {
         return RawHtml(String::new());
     }
-    let appdata = match service_pane(service, config).await {
+    let appdata = match trusted_appdata(config, service).await {
         Ok((_, a)) => a,
         Err(e) => return out_err(service, &e),
     };
@@ -104,7 +82,7 @@ pub async fn service_snapshot_restore(
     if !snapshot_name_ok(snap) {
         return out_err(service, "invalid snapshot name");
     }
-    let (pane, appdata) = match service_pane(service, config).await {
+    let (pane, appdata) = match trusted_appdata(config, service).await {
         Ok(v) => v,
         Err(e) => return out_err(service, &e),
     };

@@ -7,13 +7,10 @@ use tokio::sync::{broadcast, Mutex};
 
 use rocket::fs::FileServer;
 use rocket_dyn_templates::Template;
-use toml_edit::DocumentMut;
 
 mod action_bar;
-mod activation;
 mod diff;
 mod git;
-mod git_ops;
 mod helper_exec;
 mod nix;
 mod nix_repair;
@@ -22,7 +19,6 @@ mod plugins;
 mod routes;
 mod schema_cache;
 mod settings;
-mod structs;
 mod trigger;
 mod types;
 mod units;
@@ -33,14 +29,8 @@ mod zfs;
 use action_bar::start_action_bar_watcher;
 use routes::routes;
 use types::AppConfig;
-use util::InFlightSet;
 
-pub fn web(
-    _doc: &DocumentMut,
-    settings_path: PathBuf,
-    nix_cmd: &str,
-    config_path: &str,
-) -> Result<()> {
+pub fn web(settings_path: PathBuf, nix_cmd: &str, config_path: &str) -> Result<()> {
     // Use the resolved configuration directory for the active profile.
     // We evaluate it (not via git+file wrapper) so that saves to settings.toml
     // and any other on-disk changes are seen by the next getFlake.
@@ -53,31 +43,25 @@ pub fn web(
     let rt = Runtime::new().context("create runtime")?;
     let template_dir = util::template_dir();
     let static_dir = util::static_dir();
-    let nix_cmd_for_eval = nix_cmd.to_string();
     rt.block_on(async move {
         let busy = Arc::new(AtomicBool::new(true));
-        let evaluator =
-            nix::NixEvaluator::new(&nix_cmd_for_eval, &neo_input_for_eval, busy.clone())
-                .await
-                .context("start persistent nix repl for fast evals")?;
+        let evaluator = nix::NixEvaluator::new(nix_cmd, &neo_input_for_eval, busy.clone())
+            .await
+            .context("start persistent nix repl for fast evals")?;
         let (unit_tx, _unit_rx) = broadcast::channel::<String>(128);
         let app_config = Arc::new(AppConfig {
-            nix_cmd: nix_cmd_for_eval,
-            neo_input: neo_input_for_eval,
             settings_path,
             evaluator: Arc::new(Mutex::new(evaluator)),
             eval_busy: busy,
             unit_updates: unit_tx,
-            pulls_in_flight: Arc::new(InFlightSet::new()),
-            clear_appdata_in_flight: Arc::new(InFlightSet::new()),
-            schema_cache: Arc::new(tokio::sync::RwLock::new(
-                schema_cache::SchemaCache::default(),
-            )),
-            unit_status: Arc::new(units::UnitStatusCache::default()),
+            pulls_in_flight: Default::default(),
+            clear_appdata_in_flight: Default::default(),
+            schema_cache: Default::default(),
+            unit_status: Default::default(),
         });
         eprintln!(
             "web: config dir {} settings {:?}",
-            app_config.neo_input, app_config.settings_path
+            neo_input_for_eval, app_config.settings_path
         );
 
         // Push action-bar OOB updates (pending changes, reset, nix-busy) over the shared WS
@@ -90,13 +74,8 @@ pub fn web(
         let evaluator_for_warmup = app_config.evaluator.clone();
         tokio::spawn(async move {
             eprintln!("web: starting background warm-up of nix evaluator…");
-            {
-                let mut ev = evaluator_for_warmup.lock().await;
-                let nav = ev.extract_proxied_services().await;
-                if let Some(err) = nav.eval_error.error.as_ref() {
-                    eprintln!("web: warm-up navigator extract failed: {err}");
-                }
-                let _ = ev.extract_neo_theme().await;
+            if let Some(err) = evaluator_for_warmup.lock().await.warm_up().await {
+                eprintln!("web: warm-up navigator extract failed: {err}");
             }
             eprintln!("web: background warm-up complete.");
         });

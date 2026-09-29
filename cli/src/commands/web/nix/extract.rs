@@ -1,7 +1,7 @@
-use super::errors::{offers_flake_update, offers_store_repair, plan_for, NixError};
+use super::errors::eval_error_ui;
 use super::registry::{
-    EXTRACT_NEO_THEME, EXTRACT_PLUGIN_INVENTORY, EXTRACT_PROXIED_SERVICES, EXTRACT_SERVICES,
-    EXTRACT_SERVICE_OPTIONS,
+    NixExtractor, EXTRACT_NEO_THEME, EXTRACT_PLUGIN_INVENTORY, EXTRACT_PROXIED_SERVICES,
+    EXTRACT_SERVICES, EXTRACT_SERVICE_OPTIONS,
 };
 use super::repl::NixEvaluator;
 use crate::commands::web::plugins::{attach_service_plugin_badges, plugin_badges, plugin_filters};
@@ -10,30 +10,6 @@ use crate::commands::web::types::{
     OptionSchema, RuntimeUnit, ServiceMeta,
 };
 use crate::commands::web::util::{escape_nix_string, service_name_ok};
-
-struct FormattedNixFailure {
-    message: String,
-    kind_id: String,
-    can_store_repair: bool,
-    can_flake_update: bool,
-}
-
-/// Map an anyhow/nix failure into a stable UI string with kind + summary.
-fn format_nix_failure(context: &str, err: &anyhow::Error) -> FormattedNixFailure {
-    let nix_err = NixError::classify(&format!("{err:#}"));
-    let plan = plan_for(nix_err.kind);
-    let hint = if plan.help.is_empty() {
-        String::new()
-    } else {
-        format!(" {}", plan.help)
-    };
-    FormattedNixFailure {
-        message: format!("{context}: {}.{hint}", nix_err.display_message()),
-        kind_id: nix_err.kind.id().to_string(),
-        can_store_repair: offers_store_repair(nix_err.kind),
-        can_flake_update: offers_flake_update(nix_err.kind),
-    }
-}
 
 fn value_to_display(v: &serde_json::Value) -> String {
     match v {
@@ -110,12 +86,7 @@ fn map_units(
     units
         .into_iter()
         .map(|name| {
-            let bare = if name.starts_with("docker-") {
-                &name[7..]
-            } else {
-                name.as_str()
-            };
-            let is_container = containers.contains_key(bare) || name.starts_with("docker-");
+            let is_container = name.starts_with("docker-") || containers.contains_key(&name);
             let is_timer = timers.contains(&name);
             RuntimeUnit {
                 name,
@@ -158,9 +129,20 @@ fn rename_scalar_core_option(section: &str, opts: &mut [OptionSchema]) {
 }
 
 impl NixEvaluator {
+    /// Run an extractor that only takes the bound flake (`<load_name> { neoFlake = f; }`).
+    async fn query_extractor<T: serde::de::DeserializeOwned>(
+        &mut self,
+        extractor: &NixExtractor,
+    ) -> anyhow::Result<T> {
+        self.query_json(&format!("{} {{ neoFlake = f; }}", extractor.load_name))
+            .await
+    }
+
     pub async fn extract_services(&mut self) -> IndexContext {
-        let inner = format!("{} {{ neoFlake = f; }}", EXTRACT_SERVICES.load_name);
-        match self.query_json::<ExtractedServiceGroups>(&inner).await {
+        match self
+            .query_extractor::<ExtractedServiceGroups>(&EXTRACT_SERVICES)
+            .await
+        {
             Ok(mut extracted) => {
                 let inventory = extracted.plugin_inventory.clone();
                 for group in &mut extracted.groups {
@@ -175,21 +157,16 @@ impl NixEvaluator {
             }
             Err(e) => {
                 eprintln!("web: nix extract_services failed: {e:#}");
-                let f = format_nix_failure("Nix error while extracting service list", &e);
                 IndexContext {
-                    eval_error: EvalErrorUi::from_failure(
-                        f.message,
-                        f.kind_id,
-                        f.can_store_repair,
-                        f.can_flake_update,
-                    ),
+                    eval_error: eval_error_ui("Nix error while extracting service list", &e),
                     ..Default::default()
                 }
             }
         }
     }
 
-    fn invalid_pane(target: &PaneTarget, reason: &str) -> OptionPaneContext {
+    /// Empty pane that only carries an error banner.
+    fn error_pane(target: &PaneTarget, eval_error: EvalErrorUi) -> OptionPaneContext {
         OptionPaneContext {
             service: target.label().to_string(),
             meta: None,
@@ -198,7 +175,7 @@ impl NixEvaluator {
             options_json: "[]".to_string(),
             save_endpoint: target.save_endpoint(),
             is_core: target.is_core(),
-            eval_error: EvalErrorUi::message(reason),
+            eval_error,
             units: vec![],
             group_unit: None,
             containers: std::collections::HashMap::new(),
@@ -213,16 +190,14 @@ impl NixEvaluator {
         // Same charset as service names (alnum, `-`, `_`); rejects empty, path
         // separators, and the literal fallback "service".
         if !service_name_ok(target.label()) {
-            return Self::invalid_pane(
+            let what = if target.is_core() {
+                "section"
+            } else {
+                "service"
+            };
+            return Self::error_pane(
                 &target,
-                &format!(
-                    "Invalid {} name for nix extract",
-                    if target.is_core() {
-                        "section"
-                    } else {
-                        "service"
-                    }
-                ),
+                EvalErrorUi::message(format!("Invalid {what} name for nix extract")),
             );
         }
 
@@ -242,29 +217,7 @@ impl NixEvaluator {
                 } else {
                     format!("Nix error for service options ({label})")
                 };
-                let f = format_nix_failure(&ctx, &e);
-                return OptionPaneContext {
-                    service: label.to_string(),
-                    meta: None,
-                    options: vec![],
-                    sections: vec![],
-                    options_json: "[]".to_string(),
-                    save_endpoint: target.save_endpoint(),
-                    is_core: target.is_core(),
-                    eval_error: EvalErrorUi::from_failure(
-                        f.message,
-                        f.kind_id,
-                        f.can_store_repair,
-                        f.can_flake_update,
-                    ),
-                    units: vec![],
-                    group_unit: None,
-                    containers: std::collections::HashMap::new(),
-                    appdata: None,
-                    appdata_root: None,
-                    plugins: vec![],
-                    plugin_inventory_json: "[]".to_string(),
-                };
+                return Self::error_pane(&target, eval_error_ui(&ctx, &e));
             }
         };
         let mut opts = raw.options;
@@ -310,22 +263,13 @@ impl NixEvaluator {
     }
 
     pub async fn extract_proxied_services(&mut self) -> NavigatorContext {
-        let inner = format!("{} {{ neoFlake = f; }}", EXTRACT_PROXIED_SERVICES.load_name);
-        let mut ctx: NavigatorContext = match self.query_json(&inner).await {
+        let mut ctx: NavigatorContext = match self.query_extractor(&EXTRACT_PROXIED_SERVICES).await
+        {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("web: nix extract_proxied_services failed: {e:#}");
-                let f = format_nix_failure("Nix error while building navigator", &e);
                 NavigatorContext {
-                    domain: None,
-                    services: vec![],
-                    theme: String::new(),
-                    eval_error: EvalErrorUi::from_failure(
-                        f.message,
-                        f.kind_id,
-                        f.can_store_repair,
-                        f.can_flake_update,
-                    ),
+                    eval_error: eval_error_ui("Nix error while building navigator", &e),
                     ..Default::default()
                 }
             }
@@ -340,9 +284,15 @@ impl NixEvaluator {
         ctx
     }
 
+    /// Warm the evaluator (navigator + theme). Returns the navigator eval error, if any.
+    pub async fn warm_up(&mut self) -> Option<String> {
+        let nav = self.extract_proxied_services().await;
+        let _ = self.extract_neo_theme().await;
+        nav.eval_error.error
+    }
+
     pub async fn extract_neo_theme(&mut self) -> String {
-        let inner = format!("{} {{ neoFlake = f; }}", EXTRACT_NEO_THEME.load_name);
-        match self.query_json(&inner).await {
+        match self.query_extractor(&EXTRACT_NEO_THEME).await {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("web: nix extract_neo_theme failed: {e}");
@@ -360,8 +310,7 @@ impl NixEvaluator {
             #[serde(default)]
             owners: std::collections::HashMap<String, Vec<String>>,
         }
-        let inner = format!("{} {{ neoFlake = f; }}", EXTRACT_PLUGIN_INVENTORY.load_name);
-        let raw: RawOwners = self.query_json(&inner).await?;
+        let raw: RawOwners = self.query_extractor(&EXTRACT_PLUGIN_INVENTORY).await?;
         Ok(raw.owners)
     }
 }

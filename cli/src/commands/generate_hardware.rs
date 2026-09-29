@@ -4,19 +4,10 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use toml_edit::DocumentMut;
 
-use crate::utils::format_command;
+use crate::utils::{disko_enabled, format_command};
 
-pub fn generate_hardware(
-    config_path: &str,
-    config: &DocumentMut,
-    dry_run: bool,
-    _nix_cmd: &str,
-) -> Result<()> {
-    let disko_enabled = config
-        .get("disko")
-        .and_then(|t| t.get("enabled"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+pub fn generate_hardware(config_path: &str, config: &DocumentMut, dry_run: bool) -> Result<()> {
+    let disko_enabled = disko_enabled(config);
     if dry_run {
         println!("DRY-RUN: mkdir -p '{}' && nixos-generate-config --show-hardware-config {}> hardware-configuration.nix", config_path, if disko_enabled {"--no-filesystems "} else {""});
         return Ok(());

@@ -3,22 +3,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rocket::http::ContentType;
-use rocket::response::{Redirect, Responder};
 use rocket::{get, State};
 use rocket_dyn_templates::Template;
 
 use crate::commands::web::routes::branches::branches_template;
+use crate::commands::web::schema_cache::load_pane;
 use crate::commands::web::types::{
     AppConfig, ConfigurationPageContext, IndexContext, NavigatorContext,
 };
 use crate::commands::web::util::Htmx;
-
-/// Full shell template or a fragment / redirect (non-HTMX deep links).
-#[derive(Responder)]
-pub enum ShellOrPartial {
-    Template(Template),
-    Redirect(Redirect),
-}
 
 /// Web app manifest at a root URL with the correct MIME type (Seerr-style).
 /// Loaded from STATIC_DIR at runtime. FileServer also lacks a `.webmanifest` MIME map.
@@ -72,28 +65,8 @@ async fn configuration_shell(
     Template::render("configuration", ctx)
 }
 
-async fn option_pane_template(config: &State<Arc<AppConfig>>, service: &str) -> Template {
-    let pane = {
-        let mut ev = config.evaluator.lock().await;
-        ev.extract_service_options(service).await
-    };
-    {
-        let mut cache = config.schema_cache.write().await;
-        cache.put(false, service, pane.options.clone());
-    }
-    Template::render("option_pane", pane)
-}
-
-async fn core_pane_template(config: &State<Arc<AppConfig>>, section: &str) -> Template {
-    let pane = {
-        let mut ev = config.evaluator.lock().await;
-        ev.extract_neo_section(section).await
-    };
-    {
-        let mut cache = config.schema_cache.write().await;
-        cache.put(true, section, pane.options.clone());
-    }
-    Template::render("option_pane", pane)
+async fn pane_template(config: &State<Arc<AppConfig>>, is_core: bool, name: &str) -> Template {
+    Template::render("option_pane", load_pane(config, is_core, name).await)
 }
 
 async fn services_grid_template(config: &State<Arc<AppConfig>>) -> Template {
@@ -144,7 +117,7 @@ pub async fn configuration_settings(config: &State<Arc<AppConfig>>, htmx: Htmx) 
 #[get("/configuration/versioning")]
 pub async fn configuration_versioning(config: &State<Arc<AppConfig>>, htmx: Htmx) -> Template {
     if htmx.is_htmx() {
-        branches_template(config)
+        branches_template()
     } else {
         configuration_shell(config, "/configuration/versioning", "versioning", None).await
     }
@@ -158,7 +131,7 @@ pub async fn configuration_option(
     htmx: Htmx,
 ) -> Template {
     if htmx.is_htmx() {
-        option_pane_template(config, service).await
+        pane_template(config, false, service).await
     } else {
         configuration_shell(
             config,
@@ -178,7 +151,7 @@ pub async fn configuration_core(
     htmx: Htmx,
 ) -> Template {
     if htmx.is_htmx() {
-        core_pane_template(config, section).await
+        pane_template(config, true, section).await
     } else {
         configuration_shell(
             config,
@@ -187,53 +160,5 @@ pub async fn configuration_core(
             Some(section.to_string()),
         )
         .await
-    }
-}
-
-/// Legacy partial alias; non-HTMX browsers redirect to the canonical shell URL.
-#[get("/option/<service>")]
-pub async fn option_pane(
-    config: &State<Arc<AppConfig>>,
-    service: &str,
-    htmx: Htmx,
-) -> ShellOrPartial {
-    if htmx.is_htmx() {
-        ShellOrPartial::Template(option_pane_template(config, service).await)
-    } else {
-        ShellOrPartial::Redirect(Redirect::to(format!("/configuration/option/{service}")))
-    }
-}
-
-/// Legacy services grid partial (HTMX); non-HTMX → shell.
-#[get("/services-grid")]
-pub async fn services_grid(config: &State<Arc<AppConfig>>, htmx: Htmx) -> ShellOrPartial {
-    if htmx.is_htmx() {
-        ShellOrPartial::Template(services_grid_template(config).await)
-    } else {
-        ShellOrPartial::Redirect(Redirect::to("/configuration"))
-    }
-}
-
-/// Legacy core grid partial (HTMX); non-HTMX → shell.
-#[get("/core-grid")]
-pub fn core_grid(htmx: Htmx) -> ShellOrPartial {
-    if htmx.is_htmx() {
-        ShellOrPartial::Template(core_grid_template())
-    } else {
-        ShellOrPartial::Redirect(Redirect::to("/configuration/settings"))
-    }
-}
-
-/// Legacy core section partial; non-HTMX → shell.
-#[get("/core/<section>")]
-pub async fn core_pane(
-    config: &State<Arc<AppConfig>>,
-    section: &str,
-    htmx: Htmx,
-) -> ShellOrPartial {
-    if htmx.is_htmx() {
-        ShellOrPartial::Template(core_pane_template(config, section).await)
-    } else {
-        ShellOrPartial::Redirect(Redirect::to(format!("/configuration/core/{section}")))
     }
 }

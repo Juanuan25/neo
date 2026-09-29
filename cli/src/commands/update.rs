@@ -4,7 +4,8 @@ use std::path::Path;
 use toml_edit::DocumentMut;
 
 use crate::utils::{
-    neo_cli_get, resolve_suffix, resolve_template, run_nix, run_write_flake, OperationLog,
+    neo_cli_get, resolve_suffix, resolve_template, run_nix, run_write_flake, OperationKind,
+    OperationLog,
 };
 
 pub fn update(
@@ -26,7 +27,7 @@ pub fn update(
     }
 
     let suffix = resolve_suffix(update_suffix, "NEO_UPDATE_SUFFIX");
-    let op = OperationLog::new_update(&suffix);
+    let op = OperationLog::new(OperationKind::Update, &suffix);
     op.write_state("in_progress", "starting", None, None);
     let _tee = op.capture_stdio();
 

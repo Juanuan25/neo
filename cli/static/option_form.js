@@ -742,20 +742,6 @@ function optionForm() {
       this.values[parentName] = [...this.values[parentName]];
     },
 
-    logState() {
-      const svc = this.serviceName || 'service';
-      console.log('Current edited state for ' + svc, this.values);
-    },
-
-    copyJson() {
-      const txt = JSON.stringify(this.values, null, 2);
-      navigator.clipboard?.writeText(txt).then(() => {
-        const orig = event?.target?.innerText;
-        if (event?.target) event.target.innerText = 'Copied!';
-        setTimeout(() => { if (event?.target) event.target.innerText = orig || 'Copy JSON'; }, 1200);
-      }).catch(() => alert(txt));
-    },
-
     revertAll() {
       const origs = this.originals || {};
       Object.keys(origs).forEach((k) => this.revertField(k));

@@ -9,7 +9,8 @@ use rocket::{post, State};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::web::helper_exec::{parse_helper_value, run_helper_script};
-use crate::commands::web::structs::{AppConfig, OptionHelper, OptionSchema};
+use crate::commands::web::schema_cache::load_options;
+use crate::commands::web::types::{AppConfig, OptionHelper, OptionSchema};
 
 /// Where to apply a helper result in nested option forms.
 /// `key` is client-only (attrsOf map entry); serde ignores unknown client fields.
@@ -193,35 +194,6 @@ fn value_ok_for_kind(
             }
         }
     }
-}
-
-async fn load_options(
-    config: &AppConfig,
-    is_core: bool,
-    name: &str,
-) -> Result<Vec<OptionSchema>, String> {
-    {
-        let cache = config.schema_cache.read().await;
-        if let Some(opts) = cache.get(is_core, name) {
-            return Ok(opts);
-        }
-    }
-    let mut ev = config.evaluator.lock().await;
-    let pane = if is_core {
-        ev.extract_neo_section(name).await
-    } else {
-        ev.extract_service_options(name).await
-    };
-    drop(ev);
-    if let Some(err) = pane.eval_error.error {
-        return Err(err);
-    }
-    let opts = pane.options;
-    {
-        let mut cache = config.schema_cache.write().await;
-        cache.put(is_core, name, opts.clone());
-    }
-    Ok(opts)
 }
 
 #[post("/helper/run", data = "<body>")]

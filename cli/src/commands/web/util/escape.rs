@@ -14,10 +14,8 @@ pub fn escape_html(s: &str) -> String {
     out
 }
 
-/// Escape a string for embedding inside a double-quoted HTML attribute.
-pub fn escape_attr(s: &str) -> String {
-    escape_html(s)
-}
+/// Escape a string for embedding inside a double-quoted HTML attribute (same rules).
+pub use escape_html as escape_attr;
 
 /// Escape a value for embedding inside a double-quoted Nix string literal.
 pub fn escape_nix_string(s: &str) -> String {

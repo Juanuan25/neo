@@ -5,18 +5,14 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 
-use super::super::registry::NIX_EXTRACTORS;
+use super::super::registry::{EXTRACT_LIB, NIX_EXTRACTORS};
 
 /// True when `text` looks like a finished Nix evaluation error (not a progress line).
 pub(super) fn looks_like_terminal_nix_error(text: &str) -> bool {
     for line in text.lines() {
         let t = line.trim_start();
-        // Primary form Nix uses for evaluation failures.
-        if t.starts_with("error:") {
-            return true;
-        }
-        // Nested / secondary form in multi-line traces.
-        if t.starts_with("error: ") || t.contains("error: path ") {
+        // `error:` starts evaluation failures; `error: path …` also appears nested in traces.
+        if t.starts_with("error:") || t.contains("error: path ") {
             return true;
         }
     }
@@ -48,49 +44,27 @@ pub(super) fn write_extract_files(dir: &Path) -> Result<()> {
     for e in NIX_EXTRACTORS {
         fs::write(dir.join(e.file_name), e.content)?;
     }
+    fs::write(dir.join(EXTRACT_LIB.0), EXTRACT_LIB.1)?;
     Ok(())
 }
 
+/// Newest mtime of the config dir and its `.nix` / `.toml` / `.lock` files and
+/// directories (skipping dot entries, `result` and `target`).
 pub(super) fn current_config_mtime(config_dir: &str) -> SystemTime {
-    let root = Path::new(config_dir);
     let mut max_t = SystemTime::UNIX_EPOCH;
-    if let Ok(meta) = fs::metadata(root) {
-        if let Ok(t) = meta.modified() {
-            let root_relevant = meta.is_dir()
-                || root
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map_or(false, |e| e == "nix" || e == "toml" || e == "lock");
-            if root_relevant && t > max_t {
-                max_t = t;
-            }
-        }
-        if meta.is_dir() {
-            if let Ok(rd) = fs::read_dir(root) {
-                for entry in rd.flatten() {
-                    walk_mtime(&entry.path(), &mut max_t);
-                }
-            }
-        }
-    }
+    walk_mtime(Path::new(config_dir), &mut max_t);
     max_t
 }
 
 fn walk_mtime(p: &Path, max_t: &mut SystemTime) {
-    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-        if name.starts_with('.') || name == "result" || name == "target" {
-            return;
-        }
-    }
-    let meta = match fs::metadata(p) {
-        Ok(m) => m,
-        Err(_) => return,
+    let Ok(meta) = fs::metadata(p) else {
+        return;
     };
     if let Ok(t) = meta.modified() {
         let relevant = meta.is_dir()
             || p.extension()
                 .and_then(|e| e.to_str())
-                .map_or(false, |e| e == "nix" || e == "toml" || e == "lock");
+                .is_some_and(|e| e == "nix" || e == "toml" || e == "lock");
         if relevant && t > *max_t {
             *max_t = t;
         }
@@ -98,7 +72,11 @@ fn walk_mtime(p: &Path, max_t: &mut SystemTime) {
     if meta.is_dir() {
         if let Ok(rd) = fs::read_dir(p) {
             for entry in rd.flatten() {
-                walk_mtime(&entry.path(), max_t);
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if !(name.starts_with('.') || name == "result" || name == "target") {
+                    walk_mtime(&entry.path(), max_t);
+                }
             }
         }
     }

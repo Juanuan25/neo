@@ -8,61 +8,70 @@ pub fn config_dir(settings_path: &Path) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// `value` when set and non-empty, else `default`.
+fn non_empty_or(value: Option<String>, default: &str) -> String {
+    value
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| default.to_string())
+}
+
+/// `$var` when set and non-empty, else `default`.
+fn env_or(var: &str, default: &str) -> String {
+    non_empty_or(std::env::var(var).ok(), default)
+}
+
 pub fn sudo_cmd() -> String {
-    std::env::var("SUDO_BINARY_PATH").unwrap_or_else(|_| "sudo".to_string())
+    env_or("SUDO_BINARY_PATH", "sudo")
 }
 
 pub fn nix_bin() -> String {
-    std::env::var("NIX_BINARY_PATH")
-        .unwrap_or_else(|_| "/run/current-system/sw/bin/nix".to_string())
+    env_or("NIX_BINARY_PATH", "/run/current-system/sw/bin/nix")
 }
 
 pub fn neo_bin() -> String {
-    std::env::var("NEO_BINARY_PATH")
-        .unwrap_or_else(|_| "/run/current-system/sw/bin/neo".to_string())
+    env_or("NEO_BINARY_PATH", "/run/current-system/sw/bin/neo")
 }
 
-/// Docker CLI for inspect/pull. neo-web's systemd PATH does not include docker,
-/// so a bare `"docker"` lookup fails with ENOENT (`os error 2`).
 /// Handlebars root. Nix sets this; `cargo run` uses `cli/templates`.
 pub fn template_dir() -> String {
-    std::env::var("TEMPLATE_DIR").unwrap_or_else(|_| "templates".to_string())
+    env_or("TEMPLATE_DIR", "templates")
 }
 
 /// Static asset root. Nix sets this; `cargo run` uses `cli/static`.
 pub fn static_dir() -> String {
-    std::env::var("STATIC_DIR").unwrap_or_else(|_| "static".to_string())
+    env_or("STATIC_DIR", "static")
 }
 
+/// Docker CLI for inspect/pull. neo-web's systemd PATH does not include docker,
+/// so a bare `"docker"` lookup fails with ENOENT (`os error 2`).
 pub fn docker_bin() -> String {
-    let env = std::env::var("DOCKER_BINARY_PATH").ok();
-    resolve_env_bin(env.as_deref(), "/run/current-system/sw/bin/docker")
+    env_or("DOCKER_BINARY_PATH", "/run/current-system/sw/bin/docker")
+}
+
+pub fn zfs_bin() -> String {
+    env_or("ZFS_BINARY_PATH", "/run/current-system/sw/bin/zfs")
+}
+
+pub fn rsync_bin() -> String {
+    env_or("RSYNC_BINARY_PATH", "/run/current-system/sw/bin/rsync")
 }
 
 /// systemctl for read-only unit queries (`systemctl show`). neo-web's PATH is a
 /// closed list without systemd, so prefer an explicit env path, then the NixOS
 /// system profile, then a bare PATH lookup (dev machines).
 pub fn systemctl_bin() -> String {
-    let env = std::env::var("SYSTEMCTL_BINARY_PATH").ok();
     let system = "/run/current-system/sw/bin/systemctl";
-    let fallback = if std::path::Path::new(system).exists() {
+    let fallback = if Path::new(system).exists() {
         system
     } else {
         "systemctl"
     };
-    resolve_env_bin(env.as_deref(), fallback)
-}
-
-fn resolve_env_bin(value: Option<&str>, fallback: &str) -> String {
-    match value {
-        Some(p) if !p.is_empty() => p.to_string(),
-        _ => fallback.to_string(),
-    }
+    env_or("SYSTEMCTL_BINARY_PATH", fallback)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{docker_bin, resolve_env_bin, static_dir, template_dir};
+    use super::{docker_bin, non_empty_or, static_dir, template_dir};
 
     #[test]
     fn docker_bin_default_is_nixos_system_path_not_bare_name() {
@@ -79,8 +88,8 @@ mod tests {
     #[test]
     fn docker_bin_uses_env_when_set() {
         assert_eq!(
-            resolve_env_bin(
-                Some("/nix/store/abc/bin/docker"),
+            non_empty_or(
+                Some("/nix/store/abc/bin/docker".to_string()),
                 "/run/current-system/sw/bin/docker"
             ),
             "/nix/store/abc/bin/docker"
@@ -110,7 +119,7 @@ mod tests {
     #[test]
     fn docker_bin_treats_empty_env_as_unset() {
         assert_eq!(
-            resolve_env_bin(Some(""), "/run/current-system/sw/bin/docker"),
+            non_empty_or(Some(String::new()), "/run/current-system/sw/bin/docker"),
             "/run/current-system/sw/bin/docker"
         );
     }

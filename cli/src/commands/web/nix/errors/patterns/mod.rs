@@ -2,7 +2,7 @@
 mod rules;
 
 use super::{NixError, NixErrorKind};
-use rules::{summary_missing_path, summary_unknown, Rule, RULES};
+use rules::{summary_missing_path, summary_unknown, Rule, Summary, RULES};
 
 fn extract_store_paths(text: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -47,10 +47,11 @@ fn extract_store_paths(text: &str) -> Vec<String> {
     out
 }
 
-fn lower_contains_all(text_lower: &str, needles: &[&str]) -> bool {
-    needles
+fn rule_matches(rule: &Rule, text: &str, lower: &str) -> bool {
+    rule.any
         .iter()
-        .all(|n| text_lower.contains(&n.to_lowercase()))
+        .any(|needles| needles.iter().all(|n| lower.contains(&n.to_lowercase())))
+        && rule.extra.is_none_or(|extra| extra(text))
 }
 
 fn trim_detail(text: &str) -> String {
@@ -74,15 +75,7 @@ pub fn classify(text: &str) -> NixError {
     let lower = text.to_lowercase();
 
     let mut best: Option<&Rule> = None;
-    for rule in RULES {
-        if !lower_contains_all(&lower, rule.needles) {
-            continue;
-        }
-        if let Some(extra) = rule.extra {
-            if !extra(text) {
-                continue;
-            }
-        }
+    for rule in RULES.iter().filter(|r| rule_matches(r, text, &lower)) {
         match best {
             None => best = Some(rule),
             Some(prev) if rule.priority < prev.priority => best = Some(rule),
@@ -91,7 +84,10 @@ pub fn classify(text: &str) -> NixError {
     }
 
     let (kind, summary) = match best {
-        Some(rule) => (rule.kind, (rule.summary)(text, &paths)),
+        Some(rule) => match rule.summary {
+            Summary::Text(t) => (rule.kind, t.to_string()),
+            Summary::With(f) => (rule.kind, f(text, &paths)),
+        },
         None => {
             // Heuristic: path does not exist without our exact needle pairing.
             if lower.contains("/nix/store/") && lower.contains("does not exist") {

@@ -18,20 +18,6 @@ pub struct EvalErrorUi {
 }
 
 impl EvalErrorUi {
-    pub fn from_failure(
-        message: String,
-        kind_id: String,
-        can_store_repair: bool,
-        can_flake_update: bool,
-    ) -> Self {
-        Self {
-            error: Some(message),
-            error_kind: Some(kind_id),
-            can_store_repair,
-            can_flake_update,
-        }
-    }
-
     pub fn message(msg: impl Into<String>) -> Self {
         Self {
             error: Some(msg.into()),

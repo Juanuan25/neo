@@ -8,12 +8,6 @@ pub struct InFlightSet {
 }
 
 impl InFlightSet {
-    pub fn new() -> Self {
-        Self {
-            set: Mutex::new(HashSet::new()),
-        }
-    }
-
     pub fn contains(&self, key: &str) -> bool {
         self.set.lock().map(|s| s.contains(key)).unwrap_or(false)
     }
