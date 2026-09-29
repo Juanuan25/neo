@@ -177,6 +177,7 @@
               pkgs.coreutils
               pkgs.systemd
             ];
+            unitConfig.StartLimitIntervalSec = 0;
             serviceConfig = {
               RestartSec = 5;
               StartLimitIntervalSec = 0;
@@ -214,8 +215,7 @@
                 systemctl --no-block try-restart dnsmasq.service
               fi
             '';
-          }
-          // {startLimitIntervalSec = 0;};
+          };
         }))
       ]);
     };
