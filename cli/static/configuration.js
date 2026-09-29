@@ -713,6 +713,15 @@ window.servicesGrid = function servicesGrid() {
     } catch (e) {}
   });
 
+  // htmx's Back/Forward restore swaps #config-content straight from its history
+  // cache (bypassing the ajax pipeline), so it never fires htmx:afterSwap — the
+  // tab highlight / breadcrumb would otherwise keep whatever they were before
+  // navigating away, out of sync with the just-restored content. Re-derive them
+  // from the restored DOM the same way afterSwap does.
+  document.body.addEventListener('htmx:historyRestore', function () {
+    syncConfigShellFromContent();
+  });
+
   // Only on full page load: reopen the op monitor that was running before a reload.
   document.addEventListener('DOMContentLoaded', function () {
     if (window.NeoOpMonitor) window.NeoOpMonitor.resume(window);
