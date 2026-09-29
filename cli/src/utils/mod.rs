@@ -4,6 +4,7 @@
 
 pub mod command;
 pub mod generation;
+pub mod locks;
 pub mod ops;
 pub mod profile;
 pub mod settings;
