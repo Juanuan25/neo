@@ -45,53 +45,35 @@
           networks = ["internal"];
         };
 
-        # Type=simple so switch-to-configuration does not wait for setup to finish
-        # (oneshot would block until the retry loop succeeds). In-script retries (60s);
-        # Restart=on-failure if the process exits unexpectedly.
-        systemd.services.collabora-setup = {
+        # Non-blocking setup (lib.neo.mkSetupService): retries every 60s until
+        # occ succeeds, then stays active (exited). Re-runs when a nextcloud or
+        # collabora container restarts.
+        systemd.services.collabora-setup = lib.neo.mkSetupService {
+          inherit pkgs;
+          name = "collabora-setup";
           description = "Nextcloud post-install configuration (collabora)";
-          after = [
-            "docker-nextcloud-db.service"
-            "docker-nextcloud-redis.service"
-            "docker-nextcloud.service"
-            "docker-collabora.service"
-            "nextcloud-setup.service"
-          ];
-          wants = [
-            "docker-nextcloud-db.service"
-            "docker-nextcloud-redis.service"
-            "docker-nextcloud.service"
-            "nextcloud-setup.service"
-          ];
-          serviceConfig = {
-            Type = "simple";
-            Restart = "on-failure";
-            RestartSec = 60;
-          };
+          containers = ["nextcloud-db" "nextcloud-redis" "nextcloud" "collabora"];
+          attachTo = ["collabora"];
+          after = ["nextcloud-setup.service"];
+          wants = ["nextcloud-setup.service"];
+          retryInterval = 60;
           script = let
             docker = "${pkgs.docker}/bin/docker";
             occ = "${docker} exec --user www-data nextcloud php occ";
           in ''
             echo "Configuring Collabora integration..."
-            while true; do
-              if ${occ} app:install richdocuments || true \
-                 && ${occ} app:disable richdocuments \
-                 && ${occ} app:disable richdocumentscode \
-                 && ${occ} app:enable richdocuments \
-                 && ${occ} config:app:set richdocuments wopi_url --value 'http://collabora:9980' \
-                 && ${occ} config:app:set richdocuments public_wopi_url --value "https://${collaboraUrl}" \
-                 && ${occ} config:app:set richdocuments wopi_callback_url --value "https://${nextcloudUrl}" \
-                 && ${occ} config:app:set richdocuments wopi_allowlist --value "0.0.0.0/0" \
-                 && ${occ} richdocuments:activate-config; then
-                echo "Collabora setup completed."
-                exit 0
-              fi
-              echo "collabora setup not ready, retry in 60s"
-              sleep 60
-            done
+            ${occ} app:install richdocuments || true
+            ${occ} app:disable richdocuments
+            ${occ} app:disable richdocumentscode
+            ${occ} app:enable richdocuments
+            ${occ} config:app:set richdocuments wopi_url --value 'http://collabora:9980'
+            ${occ} config:app:set richdocuments public_wopi_url --value "https://${collaboraUrl}"
+            ${occ} config:app:set richdocuments wopi_callback_url --value "https://${nextcloudUrl}"
+            ${occ} config:app:set richdocuments wopi_allowlist --value "0.0.0.0/0"
+            ${occ} richdocuments:activate-config
+            echo "Collabora setup completed."
           '';
         };
-        systemd.services.docker-collabora.wants = ["collabora-setup.service"];
       };
     };
 }

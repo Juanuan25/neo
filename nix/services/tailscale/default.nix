@@ -83,18 +83,24 @@
             '';
           };
 
-          systemd.services.tailscaled.wants = ["tailscale-up.service"];
-          systemd.services.tailscale-up = {
+          # Blocking setup (lib.neo.mkSetupService): neo-host-dns and
+          # tailscale-split-dns order After= it and need the tailnet up.
+          # systemd restarts it on failure (no in-script retry loop).
+          systemd.services.tailscale-up = lib.neo.mkSetupService {
+            inherit pkgs;
+            name = "tailscale-up";
             description = "Configure Tailscale with user settings";
+            blocking = true;
+            retryInterval = null;
             after = [
               "tailscaled.service"
               "network.target"
             ];
+            wantedBy = ["tailscaled.service"];
+            script = ''
+              /run/current-system/sw/bin/bash /etc/tailscale/up.sh
+            '';
             serviceConfig = {
-              Type = "oneshot";
-              ExecStart = "/run/current-system/sw/bin/bash /etc/tailscale/up.sh";
-              RemainAfterExit = true;
-              Restart = "on-failure";
               RestartSec = 5;
               StartLimitBurst = 3;
               StartLimitIntervalSec = 300;
@@ -147,9 +153,14 @@
             wants = ["tailscale-split-dns.service"];
           };
 
-          systemd.services.tailscale-split-dns = {
+          # Blocking setup (lib.neo.mkSetupService): Before=dnsmasq so boot
+          # writes the zone first. systemd restarts it until tailscale has an IP.
+          systemd.services.tailscale-split-dns = lib.neo.mkSetupService {
+            inherit pkgs;
+            name = "tailscale-split-dns";
             description = "Generate Tailscale split-DNS dnsmasq zone from tailnet IPs";
-            startLimitIntervalSec = 0;
+            blocking = true;
+            retryInterval = null;
             after = [
               "tailscale-up.service"
               "tailscaled.service"
@@ -167,9 +178,6 @@
               pkgs.systemd
             ];
             serviceConfig = {
-              Type = "oneshot";
-              RemainAfterExit = true;
-              Restart = "on-failure";
               RestartSec = 5;
               StartLimitIntervalSec = 0;
               # Oneshot default is infinity. A stuck start holds
@@ -206,7 +214,8 @@
                 systemctl --no-block try-restart dnsmasq.service
               fi
             '';
-          };
+          }
+          // {startLimitIntervalSec = 0;};
         }))
       ]);
     };

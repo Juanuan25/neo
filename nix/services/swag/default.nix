@@ -226,9 +226,8 @@
               ++ customProxyConfScripts
               ++ proxyPassConfScripts
               ++ edgeConfScripts);
-            # swag-patcher is PartOf this unit, so the SWAG service target
-            # reaches it by stopping or restarting docker-swag once.
-            wants = ["swag-patcher.service"];
+            # swag-patcher is WantedBy and PartOf this unit, so the SWAG
+            # service target reaches it by stopping or restarting docker-swag.
           };
 
           virtualisation.oci-containers.containers.swag = {
@@ -283,19 +282,19 @@
             '';
           };
 
-          systemd.services."swag-patcher" = {
-            after = ["docker-swag.service"];
-            requires = ["docker-swag.service"];
+          # Non-blocking setup (lib.neo.mkSetupService): the patcher waits for
+          # SWAG to write nginx.conf, and a oneshot would hold
+          # switch-to-configuration for that whole wait.
+          systemd.services."swag-patcher" = lib.neo.mkSetupService {
+            inherit pkgs;
+            name = "swag-patcher";
+            description = "Patch SWAG nginx config (conf.d, dbip, iframe proxy)";
+            containers = ["swag"];
             # Re-run when SWAG restarts: preStart deletes nginx.conf, so a
-            # one-shot that already "succeeded" would never inject dbip again.
+            # patch that already succeeded would never inject dbip again.
             partOf = ["docker-swag.service"];
             path = [pkgs.docker];
-            serviceConfig = {
-              Type = "oneshot";
-              RemainAfterExit = true;
-              Restart = "on-failure";
-              RestartSec = "5s";
-            };
+            retryInterval = 5;
             script = ''
               APPDATA="${config.neo.core.volumes.appdata}/swag"
               NEO_UID="${toString config.neo.core.uid}"

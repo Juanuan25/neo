@@ -13,7 +13,8 @@
         (prev.neo or {})
         // (import ../../lib/firewall.nix {lib = final;}).libExtensions.firewall.neo
         // (import ../../lib/sudo.nix {lib = final;}).libExtensions.sudo.neo
-        // (import ../../lib/activation/file.nix {}).libExtensions.activate-file.neo;
+        // (import ../../lib/activation/file.nix {}).libExtensions.activate-file.neo
+        // (import ../../lib/setup-service.nix {lib = final;}).libExtensions.setup-service.neo;
     });
     neoModule =
       (import ./default.nix {

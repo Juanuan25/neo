@@ -98,60 +98,38 @@
           };
         };
 
-        # Configure Nextcloud via occ. Type=simple so switch-to-configuration does not
-        # wait for setup to finish (oneshot would block until the retry loop succeeds).
-        # Runs occ upgrade when needsDbUpgrade is set (image bumps), then defaults/repair.
-        # In-script retries (60s); Restart=on-failure if the process exits unexpectedly.
-        systemd.services.nextcloud-setup = {
+        # Configure Nextcloud via occ (lib.neo.mkSetupService, non-blocking).
+        # Runs occ upgrade when needsDbUpgrade is set (image bumps), then
+        # defaults/repair. Retries every 60s until done, then stays active
+        # (exited). Requires= on the containers re-runs it after an image update.
+        systemd.services.nextcloud-setup = lib.neo.mkSetupService {
+          inherit pkgs;
+          name = "nextcloud-setup";
           description = "Nextcloud post-install configuration (upgrade, maintenance window, defaults)";
-          after = [
-            "docker-nextcloud-db.service"
-            "docker-nextcloud-redis.service"
-            "docker-nextcloud.service"
-          ];
-          requires = [
-            "docker-nextcloud-db.service"
-            "docker-nextcloud-redis.service"
-            "docker-nextcloud.service"
-          ];
-          wants = ["docker-nextcloud.service"];
-          serviceConfig = {
-            Type = "simple";
-            Restart = "on-failure";
-            RestartSec = 60;
-          };
+          containers = ["nextcloud-db" "nextcloud-redis" "nextcloud"];
+          attachTo = ["nextcloud"];
+          retryInterval = 60;
           script = let
             docker = "${pkgs.docker}/bin/docker";
             occ = "${docker} exec --user www-data nextcloud php occ";
           in ''
             echo "Running Nextcloud setup..."
-            while true; do
-              if ${occ} status 2>/dev/null | grep -Eq 'needsDbUpgrade:[[:space:]]*true'; then
-                echo "Pending Nextcloud DB upgrade detected, running occ upgrade..."
-                if ! ${occ} upgrade; then
-                  echo "occ upgrade failed, retry in 60s"
-                  sleep 60
-                  continue
-                fi
-                ${occ} maintenance:mode --off || true
-              fi
+            if ${occ} status 2>/dev/null | grep -Eq 'needsDbUpgrade:[[:space:]]*true'; then
+              echo "Pending Nextcloud DB upgrade detected, running occ upgrade..."
+              ${occ} upgrade
+              ${occ} maintenance:mode --off || true
+            fi
 
-              if ${occ} config:system:set maintenance_window_start --value ${toString cfg.maintenanceWindowStart} --type integer \
-                 && ${occ} config:system:set default_phone_region --value '${cfg.defaultPhoneRegion}' \
-                 && ${occ} config:system:set instanceid --value '${cfg.instanceId}' \
-                 && ${occ} config:system:set overwritehost --value '${nextcloudUrl}' \
-                 && ${occ} config:system:set trusted_proxies 0 --value '0.0.0.0/0' --type string \
-                 && ${occ} maintenance:repair --include-expensive \
-                 && ${occ} db:add-missing-indices; then
-                echo "Nextcloud setup completed."
-                exit 0
-              fi
-              echo "setup not ready, retry in 60s"
-              sleep 60
-            done
+            ${occ} config:system:set maintenance_window_start --value ${toString cfg.maintenanceWindowStart} --type integer
+            ${occ} config:system:set default_phone_region --value '${cfg.defaultPhoneRegion}'
+            ${occ} config:system:set instanceid --value '${cfg.instanceId}'
+            ${occ} config:system:set overwritehost --value '${nextcloudUrl}'
+            ${occ} config:system:set trusted_proxies 0 --value '0.0.0.0/0' --type string
+            ${occ} maintenance:repair --include-expensive
+            ${occ} db:add-missing-indices
+            echo "Nextcloud setup completed."
           '';
         };
-        systemd.services.docker-nextcloud.wants = ["nextcloud-setup.service"];
       };
     };
 }

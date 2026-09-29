@@ -13,6 +13,7 @@
       _: super: {
         neo =
           (super.neo or {})
+          // (import ../../lib/setup-service.nix {inherit lib;}).libExtensions.setup-service.neo
           // {
             localDnsNamesFromConfig = _: ["app.example.test"];
           };

@@ -49,39 +49,36 @@
           networks = ["internal"];
         };
 
-        systemd.services.rustical-provision = mkIf ssoEnabled {
+        # Setup unit (lib.neo.mkSetupService). Always defined because the
+        # option lists it in systemdUnits; without SSO it has nothing to do
+        # and finishes at once. Retries every 10s until rustical is healthy.
+        systemd.services.rustical-provision = lib.neo.mkSetupService {
+          inherit pkgs;
+          name = "rustical-provision";
           description = "Provision RustiCal principals for tinyauth SSO";
-          after = ["docker-rustical.service"];
-          requires = ["docker-rustical.service"];
-          wantedBy = ["multi-user.target"];
+          containers = ["rustical"];
           path = [pkgs.docker pkgs.coreutils];
-          serviceConfig = {
-            Type = "oneshot";
-            RemainAfterExit = true;
-          };
-          script = let
-            password = lib.escapeShellArg cfg.ssoPassword;
-            idList = lib.concatMapStringsSep " " lib.escapeShellArg principalIds;
-          in ''
-            set -euo pipefail
-            rustical() {
-              docker exec rustical /usr/local/bin/rustical "$@"
-            }
-            echo "Waiting for rustical health"
-            for _ in $(seq 1 60); do
-              if rustical health >/dev/null 2>&1; then
-                break
-              fi
-              sleep 2
-            done
-            rustical health >/dev/null
-            for id in ${idList}; do
-              rustical principals create "$id" || true
-              printf '%s\n' ${password} | docker exec -i rustical /usr/local/bin/rustical principals edit "$id" --password
-            done
-          '';
+          retryInterval = 10;
+          script =
+            if ssoEnabled
+            then let
+              password = lib.escapeShellArg cfg.ssoPassword;
+              idList = lib.concatMapStringsSep " " lib.escapeShellArg principalIds;
+            in ''
+              set -euo pipefail
+              rustical() {
+                docker exec rustical /usr/local/bin/rustical "$@"
+              }
+              rustical health >/dev/null
+              for id in ${idList}; do
+                rustical principals create "$id" || true
+                printf '%s\n' ${password} | docker exec -i rustical /usr/local/bin/rustical principals edit "$id" --password
+              done
+            ''
+            else ''
+              echo "rustical SSO is off (no ssoPassword, tinyauth or users): nothing to provision"
+            '';
         };
-        systemd.services.docker-rustical.wants = mkIf ssoEnabled ["rustical-provision.service"];
       };
     };
 }

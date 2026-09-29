@@ -3,6 +3,7 @@
   flake.modules.nixos.syncthing = {
     config,
     lib,
+    pkgs,
     ...
   }:
     with lib; let
@@ -37,27 +38,22 @@
 
         # insecureAdminAccess lets SWAG (which strips Authorization) proxy the GUI
         # while tinyauth is the only user-facing gate on the public subdomain.
-        systemd.services."syncthing-config" = {
-          after = ["docker-syncthing.service"];
-          requires = ["docker-syncthing.service"];
-          serviceConfig = {
-            Type = "oneshot";
-            RemainAfterExit = true;
-          };
+        # Setup unit (lib.neo.mkSetupService): retries every 10s until syncthing
+        # has written config.xml.
+        systemd.services."syncthing-config" = lib.neo.mkSetupService {
+          inherit pkgs;
+          name = "syncthing-config";
+          description = "Allow SWAG to proxy the syncthing GUI (insecureAdminAccess)";
+          containers = ["syncthing"];
+          retryInterval = 10;
           script = let
             configFile = "${config.neo.core.volumes.appdata}/syncthing/config.xml";
             uid = toString config.neo.core.uid;
             gid = toString config.neo.core.gid;
           in ''
             CONFIG_XML="${configFile}"
-            for _ in $(seq 1 60); do
-              if [ -f "$CONFIG_XML" ]; then
-                break
-              fi
-              sleep 10
-            done
             if [ ! -f "$CONFIG_XML" ]; then
-              echo "syncthing config.xml not found after waiting"
+              echo "syncthing config.xml not written yet"
               exit 1
             fi
             if grep -q '<insecureAdminAccess>true</insecureAdminAccess>' "$CONFIG_XML"; then
@@ -70,7 +66,6 @@
             chown ${uid}:${gid} "$CONFIG_XML" || true
           '';
         };
-        systemd.services.docker-syncthing.wants = ["syncthing-config.service"];
       };
     };
 }

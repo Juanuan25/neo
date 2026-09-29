@@ -12,8 +12,8 @@ NGINX_CONF="$APPDATA/nginx/nginx.conf"
 echo "=== Patching nginx.conf ==="
 
 # SWAG copies nginx.conf from the image after the container is already
-# "started". Patching too early is a silent no-op (oneshot RemainAfterExit),
-# so $lan-ip from dbip.conf never exists. Wait for the insertion point.
+# "started". Patching too early is a silent no-op (the setup unit then stays
+# done), so $lan-ip from dbip.conf never exists. Wait for the insertion point.
 nginx_conf_ready() {
   [ -f "$NGINX_CONF" ] && grep -qE 'include[[:space:]]+/config/nginx/resolver\.conf;' "$NGINX_CONF"
 }

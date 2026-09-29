@@ -35,8 +35,15 @@
       {
         system.activationScripts.neo-bootstrap-config = ensureConfigRepo;
 
-        systemd.services.neo-bootstrap = {
+        # Blocking setup (lib.neo.mkSetupService): neo-web requires it and
+        # starts only after init finished. One attempt, no restart: a failed
+        # init fails neo-web's dependency instead of looping.
+        systemd.services.neo-bootstrap = lib.neo.mkSetupService {
+          inherit pkgs;
+          name = "neo-bootstrap";
           description = "Bootstrap nixos config git repo";
+          blocking = true;
+          retryInterval = null;
           wantedBy = ["multi-user.target"];
           before = ["neo-web.service" "multi-user.target"];
           after = ["network-online.target"];
@@ -56,8 +63,7 @@
             SUDO_BINARY_PATH = "/run/wrappers/bin/sudo";
           };
           serviceConfig = {
-            Type = "oneshot";
-            RemainAfterExit = true;
+            Restart = "no";
             User = "homeserver";
             Group = "homeserver";
             ExecStartPre = [
