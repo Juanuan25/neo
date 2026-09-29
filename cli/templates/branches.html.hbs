@@ -328,6 +328,9 @@
                             <template x-for="s in it.row.commit.changes.changed.concat(it.row.commit.changes.sections)" :key="'~' + s">
                               <span class="badge badge-ghost badge-sm font-mono" x-text="'~ ' + s" title="Settings changed"></span>
                             </template>
+                            <template x-for="s in (it.row.commit.changes.inputs || [])" :key="'^' + s">
+                              <span class="badge badge-soft badge-info badge-sm font-mono" x-text="'↑ ' + s" title="Dependency updated (flake.lock)"></span>
+                            </template>
                           </div>
                         </template>
                         <p x-show="it.row.commit.changes && it.row.commit.changes.unchanged" class="text-xs text-base-content/60">Same settings as the previous version (activated again).</p>

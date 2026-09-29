@@ -1,7 +1,8 @@
 //! One-line "what changed" per config commit: services enabled / disabled /
-//! reconfigured and other top-level sections touched, from `settings.toml` at
-//! the commit and at its first parent. Blobs are read in one
-//! `git cat-file --batch` call for the whole window.
+//! reconfigured, other top-level sections touched and flake inputs updated,
+//! from `settings.toml` / `flake.lock` at the commit and at its first parent.
+//! Blobs are read with one `git cat-file --batch` call per file for the whole
+//! window.
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
@@ -25,8 +26,61 @@ pub struct ChangeSummary {
     pub changed: Vec<String>,
     /// Other top-level sections that changed (e.g. `core`, `swag`).
     pub sections: Vec<String>,
+    /// Flake inputs whose locked revision changed (`flake.lock` update).
+    pub inputs: Vec<String>,
     /// Services enabled in this version.
     pub enabled: usize,
+}
+
+/// Direct flake inputs whose `locked` entry differs between two `flake.lock`
+/// contents. A lock change that touches no direct input (only transitive
+/// nodes) is reported as `flake.lock`.
+pub fn updated_inputs(old: &str, new: &str) -> Vec<String> {
+    use serde_json::Value;
+    if old == new {
+        return Vec::new();
+    }
+    let (Ok(old), Ok(new)) = (
+        serde_json::from_str::<Value>(old),
+        serde_json::from_str::<Value>(new),
+    ) else {
+        return Vec::new();
+    };
+    let locked = |doc: &Value, input: &str| -> Option<Value> {
+        let nodes = doc.get("nodes")?;
+        let root = doc.get("root")?.as_str()?;
+        let node = nodes.get(root)?.get("inputs")?.get(input)?.as_str()?;
+        nodes.get(node)?.get("locked").cloned()
+    };
+    let root_inputs = |doc: &Value| -> Vec<String> {
+        doc.get("root")
+            .and_then(Value::as_str)
+            .and_then(|r| doc.get("nodes")?.get(r)?.get("inputs")?.as_object())
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    let mut names = root_inputs(&new);
+    names.extend(root_inputs(&old));
+    names.sort();
+    names.dedup();
+    let mut out: Vec<String> = names
+        .into_iter()
+        .filter(|n| locked(&old, n) != locked(&new, n))
+        .collect();
+    if out.is_empty() && old.get("nodes") != new.get("nodes") {
+        out.push("flake.lock".to_string());
+    }
+    out
+}
+
+impl ChangeSummary {
+    fn is_empty(&self) -> bool {
+        self.added.is_empty()
+            && self.removed.is_empty()
+            && self.changed.is_empty()
+            && self.sections.is_empty()
+            && self.inputs.is_empty()
+    }
 }
 
 fn enabled_count(raw: &str) -> Option<usize> {
@@ -70,13 +124,12 @@ pub fn summarize(old: Option<&str>, new: &str) -> Option<ChangeSummary> {
         }
     }
     s.sections = diff.sections.into_iter().map(|sec| sec.name).collect();
-    s.unchanged =
-        s.added.is_empty() && s.removed.is_empty() && s.changed.is_empty() && s.sections.is_empty();
+    s.unchanged = s.is_empty();
     Some(s)
 }
 
-/// `settings.toml` contents at each rev (missing file / rev → absent).
-fn read_blobs(dir: &Path, revs: &[String]) -> HashMap<String, String> {
+/// `file` contents at each rev (missing file / rev → absent).
+fn read_blobs(dir: &Path, revs: &[String], file: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
     if revs.is_empty() {
         return out;
@@ -91,10 +144,7 @@ fn read_blobs(dir: &Path, revs: &[String]) -> HashMap<String, String> {
     else {
         return out;
     };
-    let input: String = revs
-        .iter()
-        .map(|r| format!("{r}:settings.toml\n"))
-        .collect();
+    let input: String = revs.iter().map(|r| format!("{r}:{file}\n")).collect();
     // Write from a thread so a full stdout pipe cannot deadlock us.
     let writer = child.stdin.take().map(|mut stdin| {
         std::thread::spawn(move || {
@@ -145,7 +195,8 @@ pub fn summarize_commits(
     }
     revs.sort();
     revs.dedup();
-    let blobs = read_blobs(dir, &revs);
+    let blobs = read_blobs(dir, &revs, "settings.toml");
+    let locks = read_blobs(dir, &revs, "flake.lock");
     commits
         .iter()
         .filter_map(|(c, p)| {
@@ -154,7 +205,14 @@ pub fn summarize_commits(
                 Some(p) => Some(blobs.get(p).map(String::as_str).unwrap_or("")),
                 None => None,
             };
-            summarize(old, new).map(|s| (c.clone(), s))
+            let mut s = summarize(old, new)?;
+            if let (Some(p), Some(new_lock)) = (p, locks.get(c)) {
+                if let Some(old_lock) = locks.get(p) {
+                    s.inputs = updated_inputs(old_lock, new_lock);
+                    s.unchanged = s.is_empty();
+                }
+            }
+            Some((c.clone(), s))
         })
         .collect()
 }
@@ -225,6 +283,41 @@ enabled = true
         let s = summarize(Some(BASE), &new).unwrap();
         assert!(s.added.is_empty());
         assert!(s.unchanged);
+    }
+
+    fn lock(nixpkgs: &str, neo: &str, transitive: &str) -> String {
+        format!(
+            r#"{{"root":"root","version":7,"nodes":{{
+  "root":{{"inputs":{{"nixpkgs":"nixpkgs","neo":"neo","follows":["neo","nixpkgs"]}}}},
+  "nixpkgs":{{"locked":{{"rev":"{nixpkgs}","narHash":"h-{nixpkgs}"}}}},
+  "neo":{{"inputs":{{"systems":"systems"}},"locked":{{"rev":"{neo}","narHash":"h-{neo}"}}}},
+  "systems":{{"locked":{{"rev":"{transitive}"}}}}
+}}}}"#
+        )
+    }
+
+    #[test]
+    fn flake_lock_updates() {
+        let base = lock("a", "b", "c");
+        assert!(updated_inputs(&base, &base).is_empty());
+        assert_eq!(
+            updated_inputs(&base, &lock("a2", "b", "c")),
+            vec!["nixpkgs"]
+        );
+        assert_eq!(
+            updated_inputs(&base, &lock("a2", "b2", "c")),
+            vec!["neo", "nixpkgs"]
+        );
+        assert_eq!(
+            updated_inputs(&base, &lock("a", "b", "c2")),
+            vec!["flake.lock"]
+        );
+        // Reformatted JSON with the same content is no update.
+        let pretty = serde_json::to_string_pretty(
+            &serde_json::from_str::<serde_json::Value>(&base).unwrap(),
+        )
+        .unwrap();
+        assert!(updated_inputs(&base, &pretty).is_empty());
     }
 
     #[test]

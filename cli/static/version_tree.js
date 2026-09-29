@@ -93,6 +93,7 @@
     if (ch.removed && ch.removed.length) parts.push('Disabled ' + listText(ch.removed));
     var changed = (ch.changed || []).concat(ch.sections || []);
     if (changed.length) parts.push('Changed ' + listText(changed));
+    if (ch.inputs && ch.inputs.length) parts.push('Updated ' + listText(ch.inputs));
     return parts.join(' · ');
   }
 

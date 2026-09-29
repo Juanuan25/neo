@@ -80,4 +80,5 @@ test('changeText summarises settings changes', () => {
     VT.changeText({ added: ['a', 'b', 'c'], removed: ['d'], changed: ['e'], sections: ['core'] }),
     'Enabled a, b +1 · Disabled d · Changed e, core',
   );
+  assert.equal(VT.changeText({ inputs: ['neo', 'nixpkgs'] }), 'Updated neo, nixpkgs');
 });
