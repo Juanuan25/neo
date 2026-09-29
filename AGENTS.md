@@ -126,6 +126,10 @@ Reference consumers: `nix/services/tinyauth/option.nix` (`access` + `ui.choices 
 
 `cli/static/nav_progress.js` hooks htmx events generically: any request swapping into `#config-content` gets a delayed top progress bar (`#neo-progress`), a pressed/spinner state on the clicked element (`data-neo-loading`), a veiled target (`aria-busy` + `.neo-swap-busy`) and a "Loading…" label after ~1.5s. Opt other requests in with `data-neo-progress` (on the element or an ancestor), out with `data-neo-progress="false"`. Do not add per-page loading hacks.
 
+### Operation locks
+
+Every mutating operation (web route, background job, CLI subcommand, updater timer) takes lock **scopes** from `cli/src/utils/locks.rs` (`LockSpec`): `system` exclusive for activate / update / generation switch / store repair / data restore; `system` shared + `service/<name>` + every `unit/<unit>` exclusive for snapshot restore and clear appdata; `unit/<unit>` for start/stop/restart and image pull; `service/<name>` shared for a snapshot; `system` shared for settings writes. Web routes use `web::locks::try_lock` (long jobs move the guard into their task), answer conflicts with `Blocked` (409, toasted by `static/locks.js`), and mark buttons with `data-neo-lock="<scope>[:sh] …"` (`lock_attr`), which `locks.js` disables while a live holder conflicts. Restores also set unit **start guards** (`/run/neo/guard/<unit>`, enforced by a global `AssertPathExists=!` drop-in in `nix/modules/core/operation-locks.nix`). New mutating operation: pick a `LockSpec`, take it, annotate its button — no ad-hoc in-progress checks.
+
 ## Live VM smoke test (default acceptance)
 
 Domain = `services.swag.domain` in settings. OCI unit = `docker-<container>`.

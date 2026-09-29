@@ -23,6 +23,11 @@ neo --help
 | `--remote-url` / `NEO_REMOTE_URL` | Override config repo URL. |
 | `--nix-path` / `NIX_BINARY_PATH` | Nix binary. |
 | `--sudo-path` / `SUDO_BINARY_PATH` | Sudo binary. |
+| `--lock-wait SECONDS` / `NEO_LOCK_WAIT` | Wait for a conflicting operation instead of failing at once (default 0). |
+
+## Operation locks
+
+Commands that change the system take Neo's **system lock** exclusively: `activate`, `update`, `update-inputs`, `generation switch|boot`, `init`, `build`, `migrate`, `paste-settings`, `generate-hardware`, `nuke`. Only one of them runs at a time, and never while the web UI restores a service snapshot, clears app data, or repairs the Nix store. `docker-update <c>` locks only that container's unit. A conflict fails right away with the holder, e.g. `Error: Blocked: Activation in progress (started 12:03)`; pass `--lock-wait 600` to wait instead. The scheduled system updater waits up to an hour. Locks are `flock`s under `/run/neo/locks` and are released when the process exits, even after a crash.
 
 On a full install (`/etc/neo/settings.toml` present), commands re-exec as the `homeserver` user when needed and default to the **server** profile (`neo-cli.server.configPath`, `neo-cli.server.neoInput`). Laptop / `nix run` defaults to the **local** profile (`neo-cli.local.configPath`, default `./build`). `neoInput` and `template` are per profile. The server profile defaults to `github:madebydamo/neo` (`#homeserver` for the template). A laptop checkout (`git+file:` or a directory template) belongs under `[neo-cli.local]`. Git identity and other shared keys stay under `[neo-cli]`.
 
