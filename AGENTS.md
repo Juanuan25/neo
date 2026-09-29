@@ -36,6 +36,8 @@ NixOS homeserver flake (**flake-parts** + **import-tree** over `./nix`) + Rust *
 
 Naming: options snake_case under `neo.services.*`; plain-string descriptions; volumes via `config.neo.core.volumes.*`.
 
+**Units / status:** every unit a service runs goes in `systemdUnits` (`mkContainerDefinitions` + `extraUnits`, or `mkSystemdUnits`); the web UI status and `neo-<service>.target` read it. Post-start configuration (occ, config patches, provisioning) uses **`lib.neo.mkSetupService`** (`nix/lib/setup-service.nix`): retry loop, RemainAfterExit so success shows as "done", Type=simple unless dependents need `blocking = true`. Status health comes from systemd properties (`units/status.rs` `UnitHealth`), never unit names.
+
 **SWAG traps:** `include /config/nginx/proxy.conf` already sets Upgrade/Connection and proxy timeouts — **do not re-set** them (426 WebSockets / `proxy_*_timeout` duplicate kills all vhosts).
 
 **ingress:** per-service multi-select (`local` / `tailscale` / `web`) via `mkReverseProxyOptions`; default all three. Omitting `web` denies that vhost on the shared rathole/PROXY-protocol listener (packet-run 404) — not a per-app rathole port.

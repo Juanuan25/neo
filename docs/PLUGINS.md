@@ -70,7 +70,7 @@ If you want to package services or Nix config for yourself or others:
    nix flake init -t github:madebydamo/neo#plugin
    ```
 
-2. Replace the example service under `modules/services/` with your app (options, container or systemd unit, optional reverse-proxy snippet)—same patterns as core services in this repo.
+2. Replace the example service under `modules/services/` with your app (options, container or systemd unit, optional reverse-proxy snippet)—same patterns as core services in this repo. Declare every unit the app runs so the web UI can show its status: containers via `lib.neo.mkContainerDefinitions`, host units (e.g. `nginx` for a static site) via `lib.neo.mkSystemdUnits [ … ]`, one-time setup via `lib.neo.mkSetupService` (listed in `extraUnits`). A service with no units shows as "configured · no processes".
 3. Publish the flake (GitHub, etc.) or keep it on a path and add it under **Settings → core → plugins**.
 
 Developers implementing services: see [AGENTS.md](../AGENTS.md) and existing modules under `nix/services/`. Users of Neo do not need that level of detail.

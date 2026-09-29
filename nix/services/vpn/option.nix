@@ -62,6 +62,9 @@
                 rank = 70;
               };
             }
+            # The gluetun container. Its image stays the top-level `image`
+            # option (settings key), so mkContainerDefinitions is not used.
+            // lib.neo.mkSystemdUnits ["docker-vpn"]
             // lib.neo.mkServiceMeta {
               category = "Network";
               icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/gluetun.svg";

@@ -6,7 +6,8 @@
     lib,
     ...
   }: let
-    # ntp/vpn (and any service that never called the unit helpers) have no
+    # A service that never called the unit helpers (config-only services,
+    # older plugins) has no
     # systemdUnits option. The module system throws on an undeclared option;
     # `or` does not catch that.
     listOr = svc: name: let

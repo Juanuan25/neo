@@ -25,7 +25,9 @@
   # by multi-user and stays up when system-updater is disabled.
   # swag-patcher: docker-swag already Wants it and the patcher is PartOf
   # docker-swag, so the target reaches it once, through that container.
-  defaultExclude = ["dnsmasq" "neo-web" "neo-bootstrap" "swag-patcher"];
+  # nginx: host nginx shared by static-site plugins (rubiks, slaputtt, …);
+  # one plugin's target stop must not take the other sites down.
+  defaultExclude = ["dnsmasq" "neo-web" "neo-bootstrap" "swag-patcher" "nginx"];
 
   zipUnitLists = maps:
     lib.zipAttrsWith (_name: vs: sort (lib.concatLists vs)) maps;

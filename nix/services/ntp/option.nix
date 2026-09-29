@@ -24,6 +24,8 @@
                 rank = 10;
               };
             }
+            # NixOS services.chrony runs as chronyd.service.
+            // lib.neo.mkSystemdUnits ["chronyd"]
             // lib.neo.mkServiceMeta {
               category = "Network";
               icon = "https://api.iconify.design/mdi/clock-check-outline.svg";
