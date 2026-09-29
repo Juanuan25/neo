@@ -522,7 +522,7 @@ impl LockManager {
             let path = self.dir.join(scope.file_name());
             let file = open_lock_file(&path)
                 .map_err(|e| LockError::Io(format!("{}: {e}", path.display())))?;
-            match flock(&file, mode.flock_op() | libc::LOCK_NB) {
+            match flock_nb_settle(&file, *mode) {
                 Ok(()) => locks.push(file),
                 Err(e) if e.kind() == ErrorKind::WouldBlock => {
                     drop(locks);
@@ -695,6 +695,22 @@ fn flock(file: &File, op: libc::c_int) -> std::io::Result<()> {
         let e = std::io::Error::last_os_error();
         if e.kind() != ErrorKind::Interrupted {
             return Err(e);
+        }
+    }
+}
+
+/// Non-blocking flock that tolerates a just-released lock: a process forked
+/// (for any child command) between our open and its exec briefly shares the
+/// lock's open file description, so a release is not visible for a few ms.
+fn flock_nb_settle(file: &File, mode: LockMode) -> std::io::Result<()> {
+    let mut tries = 0;
+    loop {
+        match flock(file, mode.flock_op() | libc::LOCK_NB) {
+            Err(e) if e.kind() == ErrorKind::WouldBlock && tries < 10 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            other => return other,
         }
     }
 }
