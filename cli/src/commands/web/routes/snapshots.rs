@@ -158,6 +158,14 @@ async fn service_manage(
         Ok((_, a)) => a,
         Err(e) => return out_err(service, &e),
     };
+    // Shared, like create: refused while a restore or clear holds the service.
+    let _lock = match try_lock(
+        &LockSpec::new().with(Scope::service(service), LockMode::Shared),
+        OpInfo::new("snapshot", format!("Snapshot change of {service}")),
+    ) {
+        Ok(l) => l,
+        Err(Blocked(msg)) => return out_err(service, &msg),
+    };
     // A running restore reads this dataset's snapshots.
     let busy = config.clear_appdata_in_flight.contains(service);
     if busy {
@@ -286,19 +294,31 @@ pub async fn versioning_zfs_dismiss() -> RawHtml<String> {
     RawHtml(data::dismiss().await)
 }
 
+/// Data snapshot change; system shared so a pending data restore (system ex) blocks it.
+async fn data_manage(ds: &str, snap: &str, action: SnapAction) -> String {
+    let _lock = match try_lock(
+        &LockSpec::system_shared(),
+        OpInfo::new("snapshot", "Data snapshot change"),
+    ) {
+        Ok(l) => l,
+        Err(Blocked(msg)) => return data::blocked_card(&msg).await,
+    };
+    data::manage(ds, snap, action).await
+}
+
 #[post("/versioning/zfs/delete?<ds>&<snap>")]
 pub async fn versioning_zfs_delete(ds: &str, snap: &str) -> RawHtml<String> {
-    RawHtml(data::manage(ds, snap, SnapAction::Delete).await)
+    RawHtml(data_manage(ds, snap, SnapAction::Delete).await)
 }
 
 #[post("/versioning/zfs/pin?<ds>&<snap>")]
 pub async fn versioning_zfs_pin(ds: &str, snap: &str) -> RawHtml<String> {
-    RawHtml(data::manage(ds, snap, SnapAction::Pin).await)
+    RawHtml(data_manage(ds, snap, SnapAction::Pin).await)
 }
 
 #[post("/versioning/zfs/unpin?<ds>&<snap>")]
 pub async fn versioning_zfs_unpin(ds: &str, snap: &str) -> RawHtml<String> {
-    RawHtml(data::manage(ds, snap, SnapAction::Unpin).await)
+    RawHtml(data_manage(ds, snap, SnapAction::Unpin).await)
 }
 
 #[get("/versioning/zfs/comment?<ds>&<snap>")]
@@ -313,5 +333,5 @@ pub async fn versioning_zfs_comment(
     form: Form<CommentForm>,
 ) -> RawHtml<String> {
     let comment = form.into_inner().comment;
-    RawHtml(data::manage(ds, snap, SnapAction::Comment(comment)).await)
+    RawHtml(data_manage(ds, snap, SnapAction::Comment(comment)).await)
 }

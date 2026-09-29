@@ -306,6 +306,11 @@ fn managed_dataset(live: &str, ds: &str) -> bool {
     ds == live || prev_suffix(live, ds).is_some()
 }
 
+/// The card with an error notice (e.g. an operation lock refused the change).
+pub async fn blocked_card(msg: &str) -> String {
+    render_card(err_notice(msg)).await
+}
+
 /// Delete / pin / unpin / comment a data snapshot, then re-render the card.
 pub async fn manage(ds: &str, snap: &str, action: SnapAction) -> String {
     let Some((_, live)) = restore_target() else {
