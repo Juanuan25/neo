@@ -6,6 +6,7 @@ mod helpers;
 mod nix_repair;
 mod oauth;
 mod pages;
+mod resources;
 mod save;
 mod settings_file;
 mod snapshots;
@@ -72,6 +73,7 @@ pub fn routes() -> Vec<rocket::Route> {
         snapshots::service_snapshot_comment_form,
         snapshots::service_snapshot_comment,
         units::sse_logs,
+        resources::resources_snapshot,
         ws::ws_status,
         ws::ws_op,
         ssh::ssh_public_key_card,

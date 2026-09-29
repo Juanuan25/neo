@@ -2,6 +2,8 @@
      sections of service cards. Filter state lives in servicesGrid()
      (configuration.js); cards carry data-* for matching. --}}
 <div id="services-grid" class="space-y-5 sm:space-y-6" x-data="servicesGrid()" @keydown.window="onKey($event)">
+  {{> partials/resources_panel}}
+
   {{#if error}}
     <div role="alert" class="alert alert-error alert-soft text-sm items-start">
       <div class="min-w-0 flex-1">

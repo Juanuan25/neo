@@ -16,6 +16,7 @@ mod nix;
 mod nix_repair;
 mod ops;
 mod plugins;
+mod resources;
 mod routes;
 mod schema_cache;
 mod settings;
@@ -58,6 +59,7 @@ pub fn web(settings_path: PathBuf, nix_cmd: &str, config_path: &str) -> Result<(
             clear_appdata_in_flight: Default::default(),
             schema_cache: Default::default(),
             unit_status: Default::default(),
+            resources: Arc::new(resources::ResourceSampler::new()),
         });
         eprintln!(
             "web: config dir {} settings {:?}",

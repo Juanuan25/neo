@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex as AsyncMutex;
 
+use super::super::resources::ResourceSampler;
 use super::super::schema_cache::SchemaCache;
 use super::super::units::UnitStatusCache;
 use super::super::util::InFlightSet;
@@ -26,4 +27,7 @@ pub struct AppConfig {
     /// Few-second, single-flight cache of batched `systemctl show` results for the
     /// services-page status dots (one systemd query per refresh for the whole page).
     pub unit_status: Arc<UnitStatusCache>,
+    /// CPU/mem/disk/net/process sampler backing the resources panel; owns the
+    /// previous `/proc` reading needed for percent/rate deltas.
+    pub resources: Arc<ResourceSampler>,
 }
