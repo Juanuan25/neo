@@ -51,6 +51,16 @@ function fakeDoc(els) {
     getElementById: (id) => byId[id] || body.children.find((c) => c.id === id) || null,
     createElement: () => fakeEl(),
     querySelector: (sel) => (sel[0] === '#' ? byId[sel.slice(1)] || null : null),
+    // Minimal support for the `[attr], [attr2]` selectors scrubLoadingMarkers uses.
+    querySelectorAll: (sel) => {
+      const attrs = sel.split(',').map((s) => {
+        const m = /^\s*\[([\w-]+)\]\s*$/.exec(s);
+        return m ? m[1] : null;
+      });
+      return Object.keys(byId)
+        .map((id) => byId[id])
+        .filter((el) => attrs.some((a) => a && el.hasAttribute(a)));
+    },
   };
 }
 
@@ -170,4 +180,38 @@ test('isTracked: config-content swaps and opt-in only', () => {
   assert.equal(NeoNavProgress.isTracked(doc, { elt: child, target: other }), true);
   const optOut = fakeEl('p', { 'data-neo-progress': 'false' });
   assert.equal(NeoNavProgress.isTracked(doc, { elt: optOut, target: content }), false);
+});
+
+test('scrubLoadingMarkers clears busy markers the controller no longer tracks', () => {
+  // Simulates the exact bug: htmx snapshotted this DOM (for its history cache)
+  // while a card/pane were still mid-request, so the markers are "orphaned" —
+  // no in-flight controller entry owns them anymore, e.g. after a Back restores
+  // that snapshot verbatim.
+  const bar = fakeEl('neo-progress');
+  const fill = fakeEl();
+  bar.appendChild(fill);
+  bar.classList.add('is-active', 'is-slow');
+  const navBusy = fakeEl('nav-busy');
+  navBusy.classList.add('is-slow');
+  const card = fakeEl('card', { 'data-neo-loading': '1', 'aria-busy': 'true' });
+  const content = fakeEl('content', { 'data-neo-busy-count': '1', 'aria-busy': 'true' });
+  content.classList.add('neo-swap-busy');
+  const doc = fakeDoc([bar, navBusy, card, content]);
+
+  NeoNavProgress.scrubLoadingMarkers(doc);
+
+  assert.equal(card.getAttribute('data-neo-loading'), null);
+  assert.equal(card.getAttribute('aria-busy'), null);
+  assert.equal(content.getAttribute('data-neo-busy-count'), null);
+  assert.equal(content.getAttribute('aria-busy'), null);
+  assert.ok(!content.classList.contains('neo-swap-busy'));
+  assert.ok(!bar.classList.contains('is-active'));
+  assert.ok(!bar.classList.contains('is-slow'));
+  assert.equal(fill.style.transform, 'scaleX(0)');
+  assert.ok(!navBusy.classList.contains('is-slow'));
+});
+
+test('scrubLoadingMarkers is a harmless no-op when there is nothing stale', () => {
+  const doc = fakeDoc([]);
+  assert.doesNotThrow(() => NeoNavProgress.scrubLoadingMarkers(doc));
 });

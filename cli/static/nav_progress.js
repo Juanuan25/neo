@@ -212,6 +212,43 @@
     };
   }
 
+  /**
+   * Clear any loading markers left in `doc`, independent of the controller's own
+   * `active` bookkeeping.
+   *
+   * htmx bakes a literal snapshot of the *current* DOM into its history cache
+   * right before every navigation that updates history (`htmx:beforeHistorySave`,
+   * fired just before the in-flight request's response swaps in — i.e. while our
+   * `data-neo-loading`/`neo-swap-busy` markers from that very navigation are still
+   * on the page). A later Back/Forward restores that snapshot byte for byte, so
+   * without this the pressed/spinner state on a clicked card or tab can come back
+   * frozen — including on a phone, where "open a service, then hit Back" is the
+   * normal gesture. Scrubbing here (not just calling ctl.endAll(), which only
+   * knows about requests it is still tracking) covers markers on nodes the
+   * controller never tracked, e.g. from before this scrub existed, or a snapshot
+   * cached in a previous page load.
+   */
+  function scrubLoadingMarkers(doc) {
+    try {
+      var stale = doc.querySelectorAll('[' + SOURCE_ATTR + '], [data-neo-busy-count]');
+      for (var i = 0; i < stale.length; i++) {
+        var el = stale[i];
+        el.removeAttribute(SOURCE_ATTR);
+        el.removeAttribute('data-neo-busy-count');
+        el.removeAttribute('aria-busy');
+        el.classList.remove(TARGET_CLASS);
+      }
+      var bar = doc.getElementById('neo-progress');
+      if (bar) {
+        bar.classList.remove('is-active', 'is-done', 'is-slow');
+        var fill = bar.firstChild;
+        if (fill && fill.style) fill.style.transform = 'scaleX(0)';
+      }
+      var nb = doc.getElementById('nav-busy');
+      if (nb) nb.classList.remove('is-slow');
+    } catch (e) {}
+  }
+
   function resolveEl(doc, t) {
     if (!t) return null;
     if (typeof t === 'string') {
@@ -305,14 +342,32 @@
       .forEach(function (name) {
         doc.addEventListener(name, stop);
       });
+
+    function resetAll() {
+      ctl.endAll();
+      scrubLoadingMarkers(doc);
+    }
+    // Scrub *before* htmx serializes #config-content into its history cache
+    // (see scrubLoadingMarkers) so a future Back/Forward restore is never
+    // stuck mid-spinner. historyRestore/popstate/pageshow are belt-and-braces
+    // for content already cached before this existed, or restored from a
+    // server round-trip (cache miss) rather than the local snapshot.
+    doc.addEventListener('htmx:beforeHistorySave', resetAll);
+    doc.addEventListener('htmx:historyRestore', resetAll);
+    window.addEventListener('popstate', resetAll);
     // Full page teardown (bfcache etc.): never leave a stuck bar.
     window.addEventListener('pageshow', function (e) {
-      if (e.persisted) ctl.endAll();
+      if (e.persisted) resetAll();
     });
     return ctl;
   }
 
-  return { createController: createController, install: install, isTracked: isTracked };
+  return {
+    createController: createController,
+    install: install,
+    isTracked: isTracked,
+    scrubLoadingMarkers: scrubLoadingMarkers,
+  };
 });
 
 if (typeof document !== 'undefined' && typeof module === 'undefined') {
