@@ -880,6 +880,17 @@
   meta = tryOr {} (configRoot.meta or {});
   units = tryOr [] (configRoot.systemdUnits or []);
   timers = tryOr [] (configRoot.systemdTimers or []);
+  # Units built with lib.neo.mkSetupService (unitConfig.X-Neo-Setup), for the
+  # "setup" badge in the Status tab. Runtime state comes from systemd properties.
+  setupUnits = tryOr [] (let
+    services = f.nixosConfigurations.${cfg}.config.systemd.services;
+  in
+    builtins.filter (
+      u:
+        services ? ${u}
+        && ((services.${u}.unitConfig or {})."X-Neo-Setup" or null) == "yes"
+    )
+    units);
   # Present only when the evaluated system actually has neo-<service>.target.
   # Missing attr (`?`) rather than `or`, so a lookup does not define the target.
   groupUnit = let
@@ -904,6 +915,7 @@ in {
   options = sorted;
   units = units;
   timers = timers;
+  setupUnits = setupUnits;
   groupUnit = groupUnit;
   containers = containers;
   appdata = appdata;

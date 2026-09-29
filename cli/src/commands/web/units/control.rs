@@ -7,6 +7,7 @@ use tokio::process::Command as AsyncCommand;
 
 use super::super::types::AppConfig;
 use super::super::util::{escape_attr, escape_html, status_slot_oob, sudo_cmd};
+use super::status::{query_unit_status_blocking, UnitStatus};
 
 pub use super::super::util::unit_name_valid;
 
@@ -51,16 +52,6 @@ fn parse_active_state_stdout(stdout: &[u8]) -> String {
     }
 }
 
-/// Query systemctl is-active for a unit (sync; used when building OOB control fragments).
-fn unit_active_state(unit: &str) -> String {
-    let sudo = sudo_cmd();
-    Command::new(&sudo)
-        .args(["systemctl", "is-active", unit])
-        .output()
-        .map(|o| parse_active_state_stdout(&o.stdout))
-        .unwrap_or_else(|_| "unknown".into())
-}
-
 pub async fn unit_active_state_async(unit: &str) -> String {
     let sudo = sudo_cmd();
     match AsyncCommand::new(&sudo)
@@ -94,17 +85,6 @@ const ICON_LOGS: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
 
 const BTN: &str = "btn btn-ghost btn-sm btn-square";
 
-/// Map a raw systemd ActiveState onto a `.neo-unit-dot` summary state.
-fn dot_state(active: &str) -> &'static str {
-    match active {
-        "active" => "ok",
-        "inactive" => "none",
-        "activating" | "deactivating" | "reloading" | "refreshing" => "changing",
-        "failed" => "failed",
-        _ => "partial",
-    }
-}
-
 /// Build the inner content (state + buttons) for a unit controls area.
 /// Used for OOB WS pushes and composed into full divs.
 ///
@@ -114,8 +94,11 @@ fn dot_state(active: &str) -> &'static str {
 ///
 /// Buttons stay stable across transitional states so restart/stop never "vanish"
 /// while systemctl --no-block is still settling (the live WS watcher re-renders
-/// as soon as ActiveState changes).
-fn render_unit_controls_content_with_state(unit: &str, active: &str, pulling: bool) -> String {
+/// as soon as the unit state changes).
+///
+/// The pill shows [`UnitStatus::health`]: a setup unit that finished reads "done"
+/// (green), not the raw `active`/`inactive`; the tooltip keeps the systemd state.
+fn render_unit_controls_content_with_state(unit: &str, st: &UnitStatus, pulling: bool) -> String {
     let is_container = unit.starts_with("docker-");
 
     let u = escape_html(unit);
@@ -123,14 +106,15 @@ fn render_unit_controls_content_with_state(unit: &str, active: &str, pulling: bo
     let u_js = u.replace('\'', "\\'");
 
     let mut inner = format!(
-        r#"<span class="neo-unit-state" title="ActiveState of {title}"><span class="neo-unit-dot" data-state="{dot}" aria-hidden="true"></span><span class="truncate">{label}</span></span>"#,
+        r#"<span class="neo-unit-state" title="{title}: {detail}"><span class="neo-unit-dot" data-state="{dot}" aria-hidden="true"></span><span class="truncate">{label}</span></span>"#,
         title = escape_attr(unit),
-        dot = dot_state(active),
-        label = escape_html(active),
+        detail = escape_attr(&st.detail()),
+        dot = st.health().dot(),
+        label = escape_html(&st.label()),
     );
 
     // Primary slot: inactive/failed → start; anything running/transitional → stop.
-    let primary = match active {
+    let primary = match st.active.as_str() {
         "inactive" | "failed" => format!(
             r##"<button type="button" class="{BTN} text-success" hx-post="/unit/start/{u}" hx-swap="none" title="Start (systemctl start)" aria-label="Start {u}">{ICON_START}</button>"##
         ),
@@ -167,17 +151,20 @@ fn render_unit_controls_content_with_state(unit: &str, active: &str, pulling: bo
 
 /// OOB fragment for htmx ws (and action HTTP responses).
 pub fn unit_controls_oob_fragment(unit: &str, config: &AppConfig) -> String {
-    let active = unit_active_state(unit);
+    let st = query_unit_status_blocking(unit);
     let pulling = is_pull_in_flight(config, unit);
-    unit_controls_oob_fragment_with_state(unit, &active, pulling)
+    unit_controls_oob_fragment_with_state(unit, &st, pulling)
 }
 
-pub fn unit_controls_oob_fragment_with_state(unit: &str, active: &str, pulling: bool) -> String {
+/// `data-active-state` = raw ActiveState, `data-health` = [`UnitHealth`] (the pane
+/// summary in configuration.js reads both).
+pub fn unit_controls_oob_fragment_with_state(unit: &str, st: &UnitStatus, pulling: bool) -> String {
     format!(
-        r#"<div id="unit-controls-{}" class="unit-controls" data-active-state="{}" hx-swap-oob="true">{}</div>"#,
+        r#"<div id="unit-controls-{}" class="unit-controls" data-active-state="{}" data-health="{}" hx-swap-oob="true">{}</div>"#,
         escape_html(unit),
-        escape_attr(active),
-        render_unit_controls_content_with_state(unit, active, pulling)
+        escape_attr(&st.active),
+        st.health().as_str(),
+        render_unit_controls_content_with_state(unit, st, pulling)
     )
 }
 
@@ -219,18 +206,29 @@ pub fn perform_unit_action(action: UnitAction, unit: &str) {
         .status();
 }
 
-/// Best-effort parse of `id="unit-controls-…"` + `data-active-state="…"` from an OOB fragment.
+/// Change key for the WS watcher: ActiveState alone misses `running` → `exited`
+/// (a setup finishing), so the key includes the derived health.
+pub fn unit_state_key(st: &UnitStatus) -> String {
+    format!("{}|{}", st.active, st.health().as_str())
+}
+
+fn attr_value<'a>(fragment: &'a str, name: &str) -> Option<&'a str> {
+    let marker = format!(r#"{name}=""#);
+    let start = fragment.find(&marker)? + marker.len();
+    let end = fragment[start..].find('"')? + start;
+    Some(&fragment[start..end])
+}
+
+/// Best-effort parse of `id="unit-controls-…"` + the [`unit_state_key`] (from
+/// `data-active-state` / `data-health`) of an OOB fragment.
 pub fn extract_unit_state_from_oob(fragment: &str) -> Option<(String, String)> {
-    let id_marker = r#"id="unit-controls-"#;
-    let state_marker = r#"data-active-state=""#;
-    let id_start = fragment.find(id_marker)? + id_marker.len();
-    let id_end = fragment[id_start..].find('"')? + id_start;
-    let unit = fragment[id_start..id_end].to_string();
-    let state_start = fragment.find(state_marker)? + state_marker.len();
-    let state_end = fragment[state_start..].find('"')? + state_start;
-    let state = fragment[state_start..state_end].to_string();
+    let unit = attr_value(fragment, "id")?
+        .strip_prefix("unit-controls-")?
+        .to_string();
+    let active = attr_value(fragment, "data-active-state")?;
+    let health = attr_value(fragment, "data-health").unwrap_or("");
     if unit_name_valid(&unit) {
-        Some((unit, state))
+        Some((unit, format!("{active}|{health}")))
     } else {
         None
     }

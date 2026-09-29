@@ -9,14 +9,14 @@ use crate::commands::web::action_bar::action_bar_oob_fragment;
 use crate::commands::web::types::AppConfig;
 use crate::commands::web::units::{
     extract_unit_state_from_oob, is_pull_in_flight, query_unit_states,
-    unit_controls_oob_fragment_with_state, unit_name_valid,
+    unit_controls_oob_fragment_with_state, unit_name_valid, unit_state_key,
 };
 
 /// Per-connection unit watch: which units the pane shows and what was last pushed.
 #[derive(Default)]
 struct UnitWatch {
     watched: HashSet<String>,
-    /// unit -> (ActiveState, pull in flight) last pushed (skip identical re-renders).
+    /// unit -> (state key, pull in flight) last pushed (skip identical re-renders).
     last: HashMap<String, (String, bool)>,
 }
 
@@ -43,17 +43,13 @@ impl UnitWatch {
     async fn changed_fragments(&mut self, config: &AppConfig) -> Vec<String> {
         let mut units: Vec<String> = self.watched.iter().cloned().collect();
         units.sort();
-        let mut states: Vec<(String, String)> = query_unit_states(&units)
-            .await
-            .into_iter()
-            .map(|(u, s)| (u, s.active))
-            .collect();
-        states.sort();
+        let mut states: Vec<_> = query_unit_states(&units).await.into_iter().collect();
+        states.sort_by(|a, b| a.0.cmp(&b.0));
         let mut out = Vec::new();
-        for (u, active) in states {
-            let now = (active, is_pull_in_flight(config, &u));
+        for (u, st) in states {
+            let now = (unit_state_key(&st), is_pull_in_flight(config, &u));
             if self.last.get(&u) != Some(&now) {
-                out.push(unit_controls_oob_fragment_with_state(&u, &now.0, now.1));
+                out.push(unit_controls_oob_fragment_with_state(&u, &st, now.1));
                 self.last.insert(u, now);
             }
         }

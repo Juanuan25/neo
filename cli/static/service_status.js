@@ -1,7 +1,7 @@
 // Service health: one shared summarizer + page-wide status dots.
 //
-// NeoUnitHealth.summarize(entries) folds per-unit ActiveState into one service
-// state. The option pane (configuration.js unitSummary) and the services grid /
+// NeoUnitHealth.summarize(entries) folds per-unit health (server-derived from
+// systemd properties, else ActiveState) into one service state. The option pane (configuration.js unitSummary) and the services grid /
 // navigator dots both call it, so they always agree.
 //
 // Dots: any element with data-service-status="<name>" data-units="a b"
@@ -23,38 +23,63 @@
   var BUSY = { activating: 1, deactivating: 1, reloading: 1, refreshing: 1 };
 
   /**
-   * @param {Array<{state: ?string, timer?: boolean, load?: string}>} entries
-   *   state: ActiveState, or null/'' while not known yet (pane waiting on WS).
-   *   load:  LoadState when known ('not-found' = unit not deployed yet).
+   * Per-unit health. The server derives it from systemd properties (Type,
+   * RemainAfterExit, SubState, Result; units/status.rs UnitHealth); without it
+   * (older callers / tests) fall back to ActiveState + LoadState.
+   * @returns {?string} running | done | setup | changing | idle | stopped |
+   *   failed | missing | unknown, or null while pending
+   */
+  function healthOf(e) {
+    if (!e.state && !e.health) return null;
+    if (e.health) return e.health;
+    var st = e.state;
+    if (e.load === 'not-found' && st !== 'failed') return 'missing';
+    if (st === 'active') return 'running';
+    if (st === 'failed') return 'failed';
+    if (BUSY[st]) return 'changing';
+    if (st === 'unknown') return 'unknown';
+    return 'stopped';
+  }
+
+  /**
+   * @param {Array<{state: ?string, health?: string, timer?: boolean, load?: string}>} entries
+   *   state:  ActiveState, or null/'' while not known yet (pane waiting on WS).
+   *   health: server-derived unit health (see healthOf); preferred over state.
+   *   load:   LoadState when known ('not-found' = unit not deployed yet).
    * @returns {{state: string, text: string}}
-   *   state ∈ ok | partial | changing | failed | down | none | unknown
+   *   state ∈ ok | partial | changing | failed | down | none | idle | unknown
+   *   A finished setup unit ('done') counts as up, so "1/2 running" only means
+   *   a daemon is really down. No units at all is 'idle' (configuration only).
    */
   function summarize(entries) {
     entries = entries || [];
-    if (!entries.length) return { state: 'none', text: 'no units' };
-    var total = 0, active = 0, failed = 0, busy = 0, unknown = 0, missing = 0, pending = 0;
+    if (!entries.length) return { state: 'idle', text: 'configured · no processes' };
+    var total = 0, up = 0, failed = 0, busy = 0, setup = 0, unknown = 0, missing = 0, pending = 0;
     for (var i = 0; i < entries.length; i++) {
       var e = entries[i] || {};
-      var st = e.state;
-      if (!st) { pending++; continue; }
+      var h = healthOf(e);
+      if (h === null) { pending++; continue; }
       // Timer-backed oneshots idle between runs; only a failure counts against them.
-      if (e.timer && st !== 'failed') continue;
+      if (e.timer && h !== 'failed') continue;
+      // A oneshot job that never ran waits for its trigger: neither up nor down.
+      if (h === 'idle') continue;
       total++;
-      if (e.load === 'not-found') { missing++; continue; }
-      if (st === 'active') active++;
-      else if (st === 'failed') failed++;
-      else if (BUSY[st]) busy++;
-      else if (st === 'unknown') unknown++;
+      if (h === 'missing') missing++;
+      else if (h === 'running' || h === 'done') up++;
+      else if (h === 'failed') failed++;
+      else if (h === 'setup') { busy++; setup++; }
+      else if (h === 'changing') busy++;
+      else if (h === 'unknown') unknown++;
     }
     if (pending) return { state: 'unknown', text: 'checking…' };
     if (failed) return { state: 'failed', text: failed === 1 ? '1 failed' : failed + ' failed' };
     if (total && missing === total) return { state: 'none', text: 'not deployed' };
     if (unknown) return { state: 'none', text: 'status unknown' };
-    if (busy) return { state: 'changing', text: 'changing…' };
+    if (busy) return { state: 'changing', text: setup === busy ? 'setting up…' : 'changing…' };
     if (total === 0) return { state: 'ok', text: 'idle' };
-    if (active === total) return { state: 'ok', text: 'running' };
-    if (active === 0) return { state: 'down', text: 'stopped' };
-    return { state: 'partial', text: active + '/' + total + ' running' };
+    if (up === total) return { state: 'ok', text: 'running' };
+    if (up === 0) return { state: 'down', text: 'stopped' };
+    return { state: 'partial', text: up + '/' + total + ' running' };
   }
 
   function words(s) {
@@ -83,7 +108,7 @@
     var svc = resp && resp.services && resp.services[name];
     if (!svc || !svc.units) return null;
     return svc.units.map(function (u) {
-      return { state: u.active || 'unknown', timer: !!u.timer, load: u.load };
+      return { state: u.active || 'unknown', health: u.health, timer: !!u.timer, load: u.load };
     });
   }
 
@@ -187,5 +212,5 @@
     },
   };
 
-  return { health: { summarize: summarize }, dots: dots };
+  return { health: { summarize: summarize, healthOf: healthOf }, dots: dots };
 });

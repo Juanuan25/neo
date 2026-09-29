@@ -19,7 +19,10 @@ use tokio::sync::Mutex as AsyncMutex;
 use super::super::util::{service_name_ok, systemctl_bin, unit_name_valid};
 
 /// Properties requested from systemd (order in the output is systemd's, not ours).
-const SHOW_PROPERTIES: &str = "Id,LoadState,ActiveState,SubState";
+/// Type / RemainAfterExit / Result / ExecMainExitTimestampMonotonic tell a finished
+/// setup or oneshot job ("done") apart from a stopped daemon; see [`UnitHealth`].
+const SHOW_PROPERTIES: &str =
+    "Id,LoadState,ActiveState,SubState,Type,RemainAfterExit,Result,ExecMainExitTimestampMonotonic";
 /// Upper bound on units per batched query (guards the argv and the cache).
 pub const MAX_UNITS: usize = 512;
 /// Upper bound on services per status request.
@@ -45,7 +48,7 @@ const UNIT_SUFFIXES: &[&str] = &[
 ];
 
 /// Load/active/sub state of one systemd unit.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct UnitStatus {
     /// ActiveState (`active`, `inactive`, `failed`, `activating`, …) or `unknown`.
     pub active: String,
@@ -53,15 +56,151 @@ pub struct UnitStatus {
     pub sub: String,
     /// LoadState (`loaded`, `not-found`, …); empty when unknown.
     pub load: String,
+    /// Service Type (`simple`, `oneshot`, `exec`, …); empty for non-services.
+    #[serde(skip)]
+    pub unit_type: String,
+    /// RemainAfterExit=yes.
+    #[serde(skip)]
+    pub remain_after_exit: bool,
+    /// Result of the last run (`success`, `exit-code`, …); empty when unknown.
+    #[serde(skip)]
+    pub result: String,
+    /// The main process has exited at least once since the unit was loaded.
+    #[serde(skip)]
+    pub has_run: bool,
+}
+
+/// What a unit's state means for the service, derived from systemd properties only
+/// (no unit-name matching). Shared by the Status tab rows (control.rs) and the
+/// `/status/services` summary (service_status.js).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UnitHealth {
+    /// Long-running process up.
+    Running,
+    /// Setup / oneshot finished successfully: `active (exited)` with RemainAfterExit,
+    /// or an inactive oneshot job whose last run succeeded.
+    Done,
+    /// Setup still working or retrying: Type=simple + RemainAfterExit while its
+    /// script runs, or a RemainAfterExit oneshot in its start job.
+    Setup,
+    /// Other transitional state (activating, deactivating, reloading, …).
+    Changing,
+    /// Oneshot job that never ran yet (waits for a trigger or timer).
+    Idle,
+    /// Not running.
+    Stopped,
+    Failed,
+    /// Unit file not on the host (config not activated yet).
+    Missing,
+    Unknown,
+}
+
+impl UnitHealth {
+    /// `.neo-unit-dot` data-state.
+    pub fn dot(self) -> &'static str {
+        match self {
+            UnitHealth::Running | UnitHealth::Done => "ok",
+            UnitHealth::Setup | UnitHealth::Changing => "changing",
+            UnitHealth::Idle | UnitHealth::Stopped | UnitHealth::Missing => "none",
+            UnitHealth::Failed => "failed",
+            UnitHealth::Unknown => "partial",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UnitHealth::Running => "running",
+            UnitHealth::Done => "done",
+            UnitHealth::Setup => "setup",
+            UnitHealth::Changing => "changing",
+            UnitHealth::Idle => "idle",
+            UnitHealth::Stopped => "stopped",
+            UnitHealth::Failed => "failed",
+            UnitHealth::Missing => "missing",
+            UnitHealth::Unknown => "unknown",
+        }
+    }
 }
 
 impl UnitStatus {
     pub fn unknown() -> Self {
         Self {
             active: "unknown".into(),
-            sub: String::new(),
-            load: String::new(),
+            ..Self::default()
         }
+    }
+
+    fn is_simple(&self) -> bool {
+        matches!(self.unit_type.as_str(), "simple" | "exec")
+    }
+
+    pub fn health(&self) -> UnitHealth {
+        if self.load == "not-found" && self.active != "failed" {
+            return UnitHealth::Missing;
+        }
+        match self.active.as_str() {
+            "failed" => UnitHealth::Failed,
+            "active" => {
+                if self.sub == "exited" {
+                    UnitHealth::Done
+                } else if self.remain_after_exit && self.is_simple() && self.sub == "running" {
+                    // Non-blocking setup (mkSetupService): active from the start, its
+                    // script is still working. It becomes `exited` once it succeeded.
+                    UnitHealth::Setup
+                } else {
+                    UnitHealth::Running
+                }
+            }
+            // Blocking setup (oneshot + RemainAfterExit) in its start job or
+            // waiting to be restarted after a failed attempt.
+            "activating" if self.remain_after_exit => UnitHealth::Setup,
+            "activating" | "deactivating" | "reloading" | "refreshing" => UnitHealth::Changing,
+            "inactive" => {
+                // RemainAfterExit units stay active after success; inactive means stopped.
+                if self.unit_type == "oneshot" && !self.remain_after_exit {
+                    if !self.has_run {
+                        UnitHealth::Idle
+                    } else if self.result == "success" {
+                        UnitHealth::Done
+                    } else {
+                        UnitHealth::Stopped
+                    }
+                } else {
+                    UnitHealth::Stopped
+                }
+            }
+            "unknown" | "" => UnitHealth::Unknown,
+            _ => UnitHealth::Changing,
+        }
+    }
+
+    /// Short label for the Status tab row.
+    pub fn label(&self) -> String {
+        match self.health() {
+            UnitHealth::Running => "running".into(),
+            UnitHealth::Done => "done".into(),
+            UnitHealth::Setup if self.sub == "auto-restart" => "retrying".into(),
+            UnitHealth::Setup => "setting up".into(),
+            UnitHealth::Idle => "idle".into(),
+            UnitHealth::Stopped => "stopped".into(),
+            UnitHealth::Failed => "failed".into(),
+            UnitHealth::Missing => "not deployed".into(),
+            UnitHealth::Unknown => "unknown".into(),
+            UnitHealth::Changing => self.active.clone(),
+        }
+    }
+
+    /// Tooltip: raw systemd state, e.g. `active (exited), result success`.
+    pub fn detail(&self) -> String {
+        let mut s = self.active.clone();
+        if !self.sub.is_empty() {
+            s.push_str(&format!(" ({})", self.sub));
+        }
+        if !self.result.is_empty() && self.result != "success" {
+            s.push_str(&format!(", result {}", self.result));
+        }
+        s
     }
 }
 
@@ -84,6 +223,12 @@ fn block_status(block: &HashMap<&str, &str>) -> UnitStatus {
         },
         sub: get("SubState"),
         load: get("LoadState"),
+        unit_type: get("Type"),
+        remain_after_exit: get("RemainAfterExit") == "yes",
+        result: get("Result"),
+        has_run: get("ExecMainExitTimestampMonotonic")
+            .parse::<u64>()
+            .is_ok_and(|t| t > 0),
     }
 }
 
@@ -178,6 +323,27 @@ pub async fn query_unit_states(units: &[String]) -> HashMap<String, UnitStatus> 
         }
         _ => all_unknown(&units),
     }
+}
+
+/// Blocking single-unit variant of [`query_unit_states`] (OOB fragments built in
+/// sync handlers). `unknown` on any error.
+pub fn query_unit_status_blocking(unit: &str) -> UnitStatus {
+    let units = sanitize_units(std::iter::once(&unit.to_string()));
+    let Some(u) = units.first() else {
+        return UnitStatus::unknown();
+    };
+    std::process::Command::new(systemctl_bin())
+        .arg("show")
+        .arg("--no-pager")
+        .arg(format!("--property={SHOW_PROPERTIES}"))
+        .arg("--")
+        .arg(u)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| !o.stdout.is_empty())
+        .and_then(|o| parse_show_output(&String::from_utf8_lossy(&o.stdout), &units).remove(u))
+        .unwrap_or_else(UnitStatus::unknown)
 }
 
 /// Short-lived, single-flight cache of unit states shared by all status requests.
@@ -281,6 +447,8 @@ pub struct UnitStatusEntry {
     pub active: String,
     pub sub: String,
     pub load: String,
+    /// [`UnitHealth`] from the systemd properties (running / done / setup / …).
+    pub health: UnitHealth,
     pub timer: bool,
 }
 
@@ -321,6 +489,7 @@ pub fn map_services(
             .map(|u| {
                 let st = states.get(&u).cloned().unwrap_or_else(UnitStatus::unknown);
                 UnitStatusEntry {
+                    health: st.health(),
                     timer: svc.timers.contains(&u),
                     name: u,
                     active: st.active,
@@ -349,7 +518,128 @@ mod tests {
             active: active.into(),
             sub: sub.into(),
             load: load.into(),
+            ..UnitStatus::default()
         }
+    }
+
+    /// Service status with the setup-relevant properties.
+    fn svc(
+        active: &str,
+        sub: &str,
+        unit_type: &str,
+        remain: bool,
+        result: &str,
+        has_run: bool,
+    ) -> UnitStatus {
+        UnitStatus {
+            active: active.into(),
+            sub: sub.into(),
+            load: "loaded".into(),
+            unit_type: unit_type.into(),
+            remain_after_exit: remain,
+            result: result.into(),
+            has_run,
+        }
+    }
+
+    #[test]
+    fn parse_reads_setup_properties() {
+        let out = "Id=collabora-setup.service\nLoadState=loaded\nActiveState=active\nSubState=exited\n\
+                   Type=simple\nRemainAfterExit=yes\nResult=success\nExecMainExitTimestampMonotonic=123456\n\n\
+                   Id=backup.service\nLoadState=loaded\nActiveState=inactive\nSubState=dead\n\
+                   Type=oneshot\nRemainAfterExit=no\nResult=success\nExecMainExitTimestampMonotonic=0\n";
+        let m = parse_show_output(out, &s(&["collabora-setup", "backup"]));
+        let setup = &m["collabora-setup"];
+        assert_eq!(setup.unit_type, "simple");
+        assert!(setup.remain_after_exit);
+        assert!(setup.has_run);
+        assert_eq!(setup.health(), UnitHealth::Done);
+        let backup = &m["backup"];
+        assert!(!backup.remain_after_exit);
+        assert!(!backup.has_run);
+        assert_eq!(backup.health(), UnitHealth::Idle);
+    }
+
+    #[test]
+    fn health_setup_units() {
+        // mkSetupService non-blocking: script still retrying → setup, then done.
+        let running = svc("active", "running", "simple", true, "success", false);
+        assert_eq!(running.health(), UnitHealth::Setup);
+        assert_eq!(running.label(), "setting up");
+        let done = svc("active", "exited", "simple", true, "success", true);
+        assert_eq!(done.health(), UnitHealth::Done);
+        assert_eq!(done.label(), "done");
+        assert_eq!(done.health().dot(), "ok");
+        // Blocking (oneshot) setup in its start job / between restarts.
+        let start = svc("activating", "start", "oneshot", true, "success", false);
+        assert_eq!(start.health(), UnitHealth::Setup);
+        let retry = svc(
+            "activating",
+            "auto-restart",
+            "oneshot",
+            true,
+            "exit-code",
+            true,
+        );
+        assert_eq!(retry.health(), UnitHealth::Setup);
+        assert_eq!(retry.label(), "retrying");
+        // Failed stays failed; a stopped RemainAfterExit setup is stopped, not done.
+        let failed = svc("failed", "failed", "simple", true, "exit-code", true);
+        assert_eq!(failed.health(), UnitHealth::Failed);
+        let stopped = svc("inactive", "dead", "oneshot", true, "success", true);
+        assert_eq!(stopped.health(), UnitHealth::Stopped);
+    }
+
+    #[test]
+    fn health_oneshot_jobs_and_daemons() {
+        // Timer job: never ran → idle; last run ok → done; last run bad → stopped.
+        assert_eq!(
+            svc("inactive", "dead", "oneshot", false, "success", false).health(),
+            UnitHealth::Idle
+        );
+        assert_eq!(
+            svc("inactive", "dead", "oneshot", false, "success", true).health(),
+            UnitHealth::Done
+        );
+        assert_eq!(
+            svc("inactive", "dead", "oneshot", false, "exit-code", true).health(),
+            UnitHealth::Stopped
+        );
+        // Job in progress is plain activating, not setup.
+        let job = svc("activating", "start", "oneshot", false, "success", false);
+        assert_eq!(job.health(), UnitHealth::Changing);
+        assert_eq!(job.label(), "activating");
+        // Daemons.
+        assert_eq!(
+            svc("active", "running", "simple", false, "success", false).health(),
+            UnitHealth::Running
+        );
+        assert_eq!(
+            svc("inactive", "dead", "simple", false, "success", true).health(),
+            UnitHealth::Stopped
+        );
+        assert_eq!(
+            st("active", "running", "loaded").health(),
+            UnitHealth::Running
+        );
+        assert_eq!(
+            st("inactive", "dead", "not-found").health(),
+            UnitHealth::Missing
+        );
+        assert_eq!(UnitStatus::unknown().health(), UnitHealth::Unknown);
+        assert_eq!(
+            st("active", "waiting", "loaded").health(),
+            UnitHealth::Running
+        );
+    }
+
+    #[test]
+    fn health_serializes_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&UnitHealth::Done).unwrap(),
+            "\"done\""
+        );
+        assert_eq!(UnitHealth::Setup.as_str(), "setup");
     }
 
     const SAMPLE: &str = "Id=dbus-broker.service\nLoadState=loaded\nActiveState=active\nSubState=running\n\nId=docker-immich.service\nLoadState=loaded\nActiveState=failed\nSubState=failed\n\nId=docker-gone.service\nLoadState=not-found\nActiveState=inactive\nSubState=dead\n";
@@ -452,6 +742,8 @@ mod tests {
         assert_eq!(immich[0].name, "docker-immich");
         assert_eq!(immich[0].active, "active");
         assert_eq!(immich[1].active, "failed");
+        assert_eq!(immich[0].health, UnitHealth::Running);
+        assert_eq!(immich[1].health, UnitHealth::Failed);
         assert!(!immich[0].timer);
 
         let pihole = &resp.services["pihole"].units;

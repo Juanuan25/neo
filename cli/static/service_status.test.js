@@ -37,15 +37,71 @@ test('summarize: pending (pane waiting on WS) is unknown/checking', () => {
   assert.equal(S([{ state: '', timer: true }]).state, 'unknown');
 });
 
-test('summarize: unknown / not deployed / no units are grey (none)', () => {
+test('summarize: unknown / not deployed are grey (none)', () => {
   assert.deepEqual(S([{ state: 'unknown' }]), { state: 'none', text: 'status unknown' });
   assert.deepEqual(
     S([{ state: 'inactive', load: 'not-found' }, { state: 'inactive', load: 'not-found' }]),
     { state: 'none', text: 'not deployed' },
   );
-  assert.deepEqual(S([]), { state: 'none', text: 'no units' });
   // Partially missing: the missing unit is simply not running.
   assert.equal(S([{ state: 'active' }, { state: 'inactive', load: 'not-found' }]).state, 'partial');
+});
+
+test('summarize: no units is a neutral configured state, not grey', () => {
+  assert.deepEqual(S([]), { state: 'idle', text: 'configured · no processes' });
+  assert.deepEqual(S(undefined), { state: 'idle', text: 'configured · no processes' });
+});
+
+test('summarize: finished setup unit counts as up (no "1/2 running")', () => {
+  // collabora: container running + collabora-setup active (exited).
+  assert.deepEqual(
+    S([
+      { state: 'active', health: 'running' },
+      { state: 'active', health: 'done' },
+    ]),
+    { state: 'ok', text: 'running' },
+  );
+  // Inactive oneshot whose last run succeeded (server says done).
+  assert.equal(S([{ state: 'active', health: 'running' }, { state: 'inactive', health: 'done' }]).state, 'ok');
+  // A daemon really down still shows partial.
+  assert.deepEqual(
+    S([{ state: 'active', health: 'running' }, { state: 'inactive', health: 'stopped' }]),
+    { state: 'partial', text: '1/2 running' },
+  );
+});
+
+test('summarize: setup in progress is changing, failed setup is failed', () => {
+  assert.deepEqual(
+    S([{ state: 'active', health: 'running' }, { state: 'active', health: 'setup' }]),
+    { state: 'changing', text: 'setting up…' },
+  );
+  assert.equal(
+    S([{ state: 'activating', health: 'changing' }, { state: 'active', health: 'setup' }]).text,
+    'changing…',
+  );
+  assert.deepEqual(
+    S([{ state: 'active', health: 'running' }, { state: 'failed', health: 'failed' }]),
+    { state: 'failed', text: '1 failed' },
+  );
+});
+
+test('summarize: never-run oneshot job (idle) is neutral', () => {
+  assert.deepEqual(S([{ state: 'active', health: 'running' }, { state: 'inactive', health: 'idle' }]), {
+    state: 'ok',
+    text: 'running',
+  });
+  assert.deepEqual(S([{ state: 'inactive', health: 'idle' }]), { state: 'ok', text: 'idle' });
+});
+
+test('healthOf: falls back to ActiveState without server health', () => {
+  const H = health.healthOf;
+  assert.equal(H({ state: 'active' }), 'running');
+  assert.equal(H({ state: 'inactive' }), 'stopped');
+  assert.equal(H({ state: 'deactivating' }), 'changing');
+  assert.equal(H({ state: 'inactive', load: 'not-found' }), 'missing');
+  assert.equal(H({ state: 'failed', load: 'not-found' }), 'failed');
+  assert.equal(H({ state: null }), null);
+  assert.equal(H({ state: 'active', health: 'done' }), 'done');
 });
 
 function fakeEl(attrs) {
@@ -96,6 +152,26 @@ test('apply: paints every dot (duplicates too) with state + tooltip/aria-label',
   assert.equal(c.attrs['data-state'], 'ok');
   assert.equal(c.attrs.title, 'pihole: running');
   assert.equal(d.attrs['data-state'], 'none');
+});
+
+test('apply: server health and empty unit lists', () => {
+  const a = fakeEl({ 'data-service-status': 'collabora' });
+  const b = fakeEl({ 'data-service-status': 'ntp' });
+  dots.apply(fakeScope([a, b]), {
+    services: {
+      collabora: {
+        units: [
+          { name: 'docker-collabora', active: 'active', health: 'running', load: 'loaded', timer: false },
+          { name: 'collabora-setup', active: 'active', health: 'done', load: 'loaded', timer: false },
+        ],
+      },
+      ntp: { units: [] },
+    },
+  });
+  assert.equal(a.attrs['data-state'], 'ok');
+  assert.equal(a.attrs.title, 'collabora: running');
+  assert.equal(b.attrs['data-state'], 'idle');
+  assert.equal(b.attrs.title, 'ntp: configured · no processes');
 });
 
 test('apply: failed request paints grey unknown', () => {

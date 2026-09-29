@@ -36,6 +36,7 @@
               <div class="flex items-center gap-2 min-w-0">
                 <span class="font-mono text-xs sm:text-sm truncate" title="{{name}}">{{name}}</span>
                 {{#if is_timer}}<span class="badge badge-ghost badge-xs shrink-0" title="Runs on a schedule; idle between runs">scheduled</span>{{/if}}
+                {{#if is_setup}}<span class="badge badge-ghost badge-xs shrink-0" title="Runs once after its containers start and retries until it succeeds; done afterwards">setup</span>{{/if}}
               </div>
               <div id="update-out-{{name}}" class="update-out update-out-inline text-[10px] max-w-full truncate empty:hidden" title=""></div>
             </div>
@@ -45,6 +46,11 @@
           </li>
         {{/each}}
       </ul>
+    </div>
+  {{else}}
+    <div class="flex items-center gap-2 rounded-box border border-base-300 bg-base-100 px-3 sm:px-4 py-2.5 text-sm text-base-content/70">
+      <span class="neo-unit-dot" data-state="idle" aria-hidden="true"></span>
+      Configured · no processes. This service declares no systemd units to watch.
     </div>
   {{/if}}
 

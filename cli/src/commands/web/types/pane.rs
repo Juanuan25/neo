@@ -37,6 +37,10 @@ pub struct RuntimeUnit {
     /// Timer-backed oneshot (`systemdTimers`): inactive between runs is healthy.
     #[serde(default)]
     pub is_timer: bool,
+    /// Built with `lib.neo.mkSetupService` (unitConfig.X-Neo-Setup): runs once
+    /// after its containers; "done" once it succeeded.
+    #[serde(default)]
+    pub is_setup: bool,
 }
 
 /// One settings section in the option pane: "General" (ungrouped options,

@@ -336,7 +336,9 @@ html.neo-bars-fused #options-sticky-save {
  * tab) and the services grid dots (the navigator sidebar uses .neo-unit-alert,
  * static/neo.css, which only shows problems):
  *   ok → green · partial | changing → amber · failed | down → red ·
- *   none (unknown / not deployed) → grey · unknown (still checking) → pulse.
+ *   none (unknown / not deployed) → grey · unknown (still checking) → pulse ·
+ *   idle (configured, no units) → hollow ring. A finished setup unit is "done"
+ *   and counts as ok (units/status.rs UnitHealth).
  * `busy` is a generic "live" indicator (logs dialog), not a summary state.
  */
 .neo-unit-dot {
@@ -362,6 +364,12 @@ html.neo-bars-fused #options-sticky-save {
 .neo-unit-dot[data-state="none"],
 .neo-unit-dot[data-service-status]:not([data-state]) {
   background-color: color-mix(in oklab, var(--color-base-content) 30%, var(--color-base-100));
+}
+/* idle: configured, no processes to watch (ntp without units, static plugins).
+   A hollow ring: neutral, not the grey "status unknown". */
+.neo-unit-dot[data-state="idle"] {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--color-success) 70%, var(--color-base-content));
 }
 .neo-unit-dot[data-state="busy"],
 .neo-unit-dot[data-state="unknown"] {

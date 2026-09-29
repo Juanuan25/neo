@@ -1056,6 +1056,7 @@ window.servicesGrid = function servicesGrid() {
     for (var i = 0; i < ctrls.length; i++) {
       entries.push({
         state: ctrls[i].getAttribute('data-active-state'),
+        health: ctrls[i].getAttribute('data-health'),
         timer: ctrls[i].closest('.unit-row').hasAttribute('data-timer'),
       });
     }
@@ -1085,7 +1086,7 @@ window.servicesGrid = function servicesGrid() {
         subtree: true,
         childList: true,
         attributes: true,
-        attributeFilter: ['data-active-state'],
+        attributeFilter: ['data-active-state', 'data-health'],
       });
     }
     schedule();
