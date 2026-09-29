@@ -6,6 +6,11 @@
 # last.json is retargeted to an in-progress stub at start, then rewritten when
 # the run finishes (or on SIGTERM). When Hermes superviseUpdates is on, also
 # tag the previous image so Hermes can roll back a broken pull.
+#
+# Each restart holds the unit's neo operation lock (cli/src/utils/locks.rs,
+# /run/neo/locks/unit_<unit>.lock): it waits for a UI start/stop/pull and skips a
+# unit whose service is being restored or cleared (its units stay stopped; the
+# pulled image is used when the restore starts it again).
 {...}: {
   flake.modules.nixos.docker-updater = {
     config,
@@ -106,7 +111,13 @@
                   <<<"$updates_json")
                 ${concatMapStringsSep "\n" (c: ''
                   echo "    systemctl restart docker-${c.container} (${c.service})"
-                  if ! ${pkgs.systemd}/bin/systemctl restart "docker-${c.container}"; then
+                  rc=0
+                  ${pkgs.util-linux}/bin/flock -E 75 -w 120 \
+                    ${escapeShellArg "/run/neo/locks/unit_docker-${c.container}.service.lock"} \
+                    ${pkgs.systemd}/bin/systemctl restart "docker-${c.container}" || rc=$?
+                  if [ "$rc" -eq 75 ]; then
+                    echo "    skipped docker-${c.container}: locked by a neo operation (restore / clear appdata / pull)"
+                  elif [ "$rc" -ne 0 ]; then
                     echo "    restart failed: docker-${c.container}"
                     failed=1
                   fi

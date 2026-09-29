@@ -24,6 +24,9 @@
     environment = {
       NIX_BINARY_PATH = "${pkgs.nix}/bin/nix";
       SUDO_BINARY_PATH = "/run/wrappers/bin/sudo";
+      # Scheduled run: wait (up to 1h) for a running activation / restore / … to
+      # finish instead of failing on the operation lock like an interactive call.
+      NEO_LOCK_WAIT = "3600";
     };
   in {
     config = lib.mkIf cfg.enabled {
