@@ -23,9 +23,10 @@ use crate::commands::{
     update_inputs::update_inputs,
     web::web,
 };
+use crate::utils::locks::{LockGuard, LockManager, LockSpec, OpInfo};
 use crate::utils::{
     execute_command, load_or_default_settings, resolve_config_path, resolve_profile,
-    set_profile_str,
+    set_profile_str, OperationKind, OperationLog,
 };
 
 #[derive(Parser)]
@@ -70,6 +71,11 @@ struct Cli {
     /// path to sudo executable
     #[arg(long, env = "SUDO_BINARY_PATH", global = true)]
     sudo_path: Option<String>,
+
+    /// Seconds to wait for a conflicting operation (activation, update, restore, …)
+    /// to finish before giving up. Default 0: fail at once. Env: NEO_LOCK_WAIT.
+    #[arg(long, env = "NEO_LOCK_WAIT", value_name = "SECONDS", global = true)]
+    lock_wait: Option<u64>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -154,7 +160,7 @@ fn run(cli: Cli) -> Result<()> {
                 .arg("-u")
                 .arg("homeserver")
                 .arg(
-                    "--preserve-env=NEO_NEO_INPUT,NEO_TEMPLATE,NEO_REMOTE_URL,NIX_BINARY_PATH,SUDO_BINARY_PATH,NEO_ACTIVATION_SUFFIX,NEO_UPDATE_SUFFIX,NEO_SECTION,NEO_PROFILE,TEMPLATE_DIR,STATIC_DIR,DEFAULT_SETTINGS_PATH",
+                    "--preserve-env=NEO_NEO_INPUT,NEO_TEMPLATE,NEO_REMOTE_URL,NIX_BINARY_PATH,SUDO_BINARY_PATH,NEO_ACTIVATION_SUFFIX,NEO_UPDATE_SUFFIX,NEO_GENSWITCH_SUFFIX,NEO_LOCK_WAIT,NEO_SECTION,NEO_PROFILE,TEMPLATE_DIR,STATIC_DIR,DEFAULT_SETTINGS_PATH",
                 )
                 .args(env::args()),
         )?;
@@ -190,6 +196,13 @@ fn run(cli: Cli) -> Result<()> {
         );
     }
 
+    // Held until the command returns; nested `neo` calls inherit it.
+    let _lock = if dry_run {
+        None
+    } else {
+        acquire_command_lock(&command, cli.lock_wait)?
+    };
+
     match command {
         Commands::GenerateHardware => generate_hardware(&config_path, &doc, dry_run),
         Commands::PasteSettings => paste_settings(&config_path, &settings_path, &doc, dry_run),
@@ -223,5 +236,84 @@ fn run(cli: Cli) -> Result<()> {
             Some(GenerationAction::Boot { n }) => generation_boot(n, dry_run, sudo_cmd),
             None => generation_help(),
         },
+    }
+}
+
+/// Operation lock a subcommand needs, and the web-tracked op it runs as (if any).
+/// See `utils::locks` for the scope model.
+fn command_lock(command: &Commands) -> Option<(LockSpec, OpInfo, Option<OperationLog>)> {
+    let system = |kind: &str, label: &str| Some((LockSpec::system_change(), OpInfo::new(kind, label), None));
+    // Set when the web UI started this command (its monitor must see a lock failure).
+    let web_op = |kind: OperationKind, suffix: Option<String>| {
+        suffix.filter(|s| !s.is_empty()).map(|s| OperationLog::new(kind, &s))
+    };
+    let with_op = |mut t: (LockSpec, OpInfo, Option<OperationLog>), op: Option<OperationLog>| {
+        if let Some(op) = &op {
+            t.1 = t.1.with_op_id(op.id());
+        }
+        t.2 = op;
+        Some(t)
+    };
+    match command {
+        Commands::Activate { activation_suffix } => with_op(
+            system("activation", "Activation")?,
+            web_op(OperationKind::Activation, activation_suffix.clone()),
+        ),
+        Commands::Update { update_suffix } => with_op(
+            system("update", "Update")?,
+            web_op(OperationKind::Update, update_suffix.clone()),
+        ),
+        Commands::Generation {
+            action: Some(GenerationAction::Switch { .. } | GenerationAction::Boot { .. }),
+        } => with_op(
+            system("generation", "Generation switch")?,
+            web_op(
+                OperationKind::Generation,
+                env::var("NEO_GENSWITCH_SUFFIX").ok(),
+            ),
+        ),
+        Commands::UpdateInputs => system("update", "Flake input update"),
+        Commands::Init => system("init", "Config init"),
+        Commands::Migrate => system("migrate", "Config migration"),
+        Commands::Build => system("build", "Build"),
+        Commands::PasteSettings => system("paste-settings", "Settings paste"),
+        Commands::GenerateHardware => system("generate-hardware", "Hardware config generation"),
+        Commands::Nuke => system("nuke", "Config removal"),
+        Commands::DockerUpdate { container } => {
+            let unit = format!("docker-{}", container.strip_prefix("docker-").unwrap_or(container));
+            Some((
+                LockSpec::unit(&unit),
+                OpInfo::new("pull", format!("Image update of {unit}")),
+                None,
+            ))
+        }
+        // Long-lived / interactive / read-only.
+        Commands::Web
+        | Commands::Edit
+        | Commands::Git
+        | Commands::Lg
+        | Commands::Generation { .. } => None,
+    }
+}
+
+/// Take the command's lock (waiting up to `wait_secs`). Exclusive scopes are
+/// exported to child processes so nested `neo` calls do not block on them.
+fn acquire_command_lock(command: &Commands, wait_secs: Option<u64>) -> Result<Option<LockGuard>> {
+    let Some((spec, info, web_op)) = command_lock(command) else {
+        return Ok(None);
+    };
+    let wait = std::time::Duration::from_secs(wait_secs.unwrap_or(0));
+    match LockManager::system().acquire(&spec, &info, wait) {
+        Ok(guard) => {
+            guard.export_to_children();
+            Ok(Some(guard))
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            if let Some(op) = web_op {
+                op.write_state("failed", "locked", Some(&msg), None);
+            }
+            Err(anyhow::anyhow!(msg))
+        }
     }
 }

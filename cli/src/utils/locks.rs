@@ -760,15 +760,6 @@ pub fn local_hhmm(epoch: i64) -> String {
     }
 }
 
-/// Wait time from `NEO_LOCK_WAIT` (seconds), default 0.
-pub fn wait_from_env() -> Duration {
-    std::env::var(WAIT_ENV)
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .map(Duration::from_secs)
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
