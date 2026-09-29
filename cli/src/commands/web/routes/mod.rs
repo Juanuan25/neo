@@ -3,6 +3,7 @@ mod activation;
 mod branches;
 mod changes;
 mod helpers;
+mod locks;
 mod nix_repair;
 mod oauth;
 mod pages;
@@ -46,6 +47,7 @@ pub fn routes() -> Vec<rocket::Route> {
         branches::versioning_gen_switch,
         branches::versioning_note,
         activation::op_monitor,
+        locks::locks_state,
         nix_repair::nix_repair_start,
         units::unit_restart,
         units::unit_start,

@@ -12,6 +12,7 @@ mod action_bar;
 mod diff;
 mod git;
 mod helper_exec;
+mod locks;
 mod nix;
 mod nix_repair;
 mod ops;
@@ -28,6 +29,7 @@ mod version_tree;
 mod zfs;
 
 use action_bar::start_action_bar_watcher;
+use locks::start_lock_watcher;
 use routes::routes;
 use types::AppConfig;
 
@@ -69,6 +71,8 @@ pub fn web(settings_path: PathBuf, nix_cmd: &str, config_path: &str) -> Result<(
         // Push action-bar OOB updates (pending changes, reset, nix-busy) over the shared WS
         // whenever state changes — replaces the old client-side every-20s polling.
         start_action_bar_watcher(app_config.clone());
+        // Push operation-lock holders (web jobs, CLI, timers) so conflicting buttons disable.
+        start_lock_watcher(app_config.clone());
 
         // Background warm-up: full homeserver flake + settings + option walking can take
         // 30s–10min the first time. Spawn after start so Rocket can bind promptly; first

@@ -7,21 +7,28 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command as TokioCommand;
 
+use crate::commands::web::locks::{try_lock, Blocked};
 use crate::commands::web::ops::store::{
     append_log, find_recent_in_progress, log_path, write_state,
 };
 use crate::commands::web::types::AppConfig;
 use crate::commands::web::util::{nix_bin, sudo_cmd};
+use crate::utils::locks::{LockSpec, OpInfo};
 use crate::utils::{get_timestamp, OperationKind, OPERATIONS_DIR};
 
 /// Start a background store verify+repair. Returns the operation id.
 /// Single-flight: if one is already running, returns that id instead of starting another.
-pub fn start_store_verify_repair(config: Arc<AppConfig>) -> String {
+/// Takes the system scope exclusively for the whole repair (no build / switch meanwhile).
+pub fn start_store_verify_repair(config: Arc<AppConfig>) -> Result<String, Blocked> {
     if let Some(existing) = find_recent_in_progress(OperationKind::Repair) {
-        return existing;
+        return Ok(existing);
     }
     let ts = get_timestamp();
     let id = format!("repair_{ts}");
+    let lock = try_lock(
+        &LockSpec::system_change(),
+        OpInfo::new("repair", "Nix store repair").with_op_id(&id),
+    )?;
     let _ = fs::create_dir_all(OPERATIONS_DIR);
     write_state(&id, "in_progress", "starting", None);
     let _ = fs::write(
@@ -31,9 +38,10 @@ pub fn start_store_verify_repair(config: Arc<AppConfig>) -> String {
 
     let id_for_task = id.clone();
     tokio::spawn(async move {
+        let _lock = lock;
         run_store_verify_repair(config, id_for_task).await;
     });
-    id
+    Ok(id)
 }
 
 async fn run_store_verify_repair(config: Arc<AppConfig>, id: String) {

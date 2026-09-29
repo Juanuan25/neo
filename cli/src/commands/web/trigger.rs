@@ -3,8 +3,14 @@ use std::process::Command;
 
 use rocket::response::content::RawHtml;
 
+use crate::utils::locks::{LockSpec, OpInfo};
 use crate::utils::{execute_command, get_timestamp, GenerationMode, OperationKind, OperationLog};
 
+/// Seconds the spawned `neo` waits for the system lock (covers the probe → spawn gap
+/// and a just-finishing op); a real conflict is refused by [`probe`] before spawning.
+const SPAWNED_LOCK_WAIT: &str = "30";
+
+use super::locks::{probe, Blocked};
 use super::ops::monitor::monitor_fragment;
 use super::ops::store::{find_recent_in_progress, gc_old_ops};
 use super::util::{self, alert_html, AlertKind};
@@ -43,6 +49,8 @@ fn trigger_systemd_run(
         "-E",
         &format!("SUDO_BINARY_PATH={}", sudo_cmd),
         "-E",
+        &format!("NEO_LOCK_WAIT={SPAWNED_LOCK_WAIT}"),
+        "-E",
         "PATH=/run/current-system/sw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     ]);
     for (k, v) in env_pairs {
@@ -77,63 +85,78 @@ fn trigger_oneshot(kind: OperationKind, subcommand: &str, env_var: &str) -> RawH
     RawHtml(monitor_fragment(op.id(), None))
 }
 
-pub fn trigger_activation() -> RawHtml<String> {
+/// The system scope is free (no activation / update / restore / … in any process).
+pub fn probe_system_change(kind: &str, label: &str) -> Result<(), Blocked> {
+    probe(&LockSpec::system_change(), OpInfo::new(kind, label))
+}
+
+pub fn trigger_activation() -> Result<RawHtml<String>, Blocked> {
     gc_old_ops();
+    probe_system_change("activation", "Activation")?;
     if let Some(id) = find_recent_in_progress(OperationKind::Activation) {
-        return alert(
+        return Ok(alert(
             AlertKind::Error,
             format!("Another activation {id} in progress (or auto-update). Wait."),
-        );
+        ));
     }
     if let Some(id) = find_recent_in_progress(OperationKind::Generation) {
-        return alert(
+        return Ok(alert(
             AlertKind::Error,
             format!("Generation switch {id} in progress. Wait."),
-        );
+        ));
     }
-    trigger_oneshot(
+    Ok(trigger_oneshot(
         OperationKind::Activation,
         "activate",
         "NEO_ACTIVATION_SUFFIX",
-    )
+    ))
 }
 
 /// Flake/input update oneshot (blocks if activate or update already running).
-pub fn trigger_update() -> RawHtml<String> {
+pub fn trigger_update() -> Result<RawHtml<String>, Blocked> {
     gc_old_ops();
+    probe_system_change("update", "Update")?;
     if let Some(id) = find_recent_in_progress(OperationKind::Activation) {
-        return alert(
+        return Ok(alert(
             AlertKind::Info,
             format!("Activation {id} in progress — cannot update"),
-        );
+        ));
     }
     if let Some(id) = find_recent_in_progress(OperationKind::Update) {
-        return alert(AlertKind::Info, format!("Update {id} already in progress"));
+        return Ok(alert(
+            AlertKind::Info,
+            format!("Update {id} already in progress"),
+        ));
     }
     if let Some(id) = find_recent_in_progress(OperationKind::Generation) {
-        return alert(
+        return Ok(alert(
             AlertKind::Info,
             format!("Generation switch {id} in progress — cannot update"),
-        );
+        ));
     }
-    trigger_oneshot(OperationKind::Update, "update", "NEO_UPDATE_SUFFIX")
+    Ok(trigger_oneshot(
+        OperationKind::Update,
+        "update",
+        "NEO_UPDATE_SUFFIX",
+    ))
 }
 
 /// Detached generation switch/boot. Must not run in the neo-web process:
 /// `switch-to-configuration` stops `neo-web.service`.
-pub fn trigger_generation_switch(n: u64, mode: GenerationMode) -> RawHtml<String> {
+pub fn trigger_generation_switch(n: u64, mode: GenerationMode) -> Result<RawHtml<String>, Blocked> {
     gc_old_ops();
+    probe_system_change("generation", "Generation switch")?;
     if let Some(id) = find_recent_in_progress(OperationKind::Activation) {
-        return alert(
+        return Ok(alert(
             AlertKind::Error,
             format!("Activation {id} in progress — cannot switch generation"),
-        );
+        ));
     }
     if let Some(id) = find_recent_in_progress(OperationKind::Generation) {
-        return alert(
+        return Ok(alert(
             AlertKind::Error,
             format!("Generation switch {id} already in progress"),
-        );
+        ));
     }
 
     let ts = get_timestamp();
@@ -165,10 +188,10 @@ pub fn trigger_generation_switch(n: u64, mode: GenerationMode) -> RawHtml<String
         GenerationMode::Boot => format!("Setting generation {n} as the boot default."),
         GenerationMode::Switch => format!("Switching to generation {n}."),
     };
-    RawHtml(monitor_fragment(
+    Ok(RawHtml(monitor_fragment(
         op.id(),
         Some(&format!(
             "{what} The web UI may restart during the switch; the output reconnects automatically."
         )),
-    ))
+    )))
 }

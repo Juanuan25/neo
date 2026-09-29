@@ -5,6 +5,7 @@ use rocket::form::Form;
 use rocket::response::content::RawHtml;
 use rocket::{get, post, FromForm, State};
 
+use crate::commands::web::locks::{try_lock, Blocked};
 use crate::commands::web::types::AppConfig;
 use crate::commands::web::units::{trusted_appdata, try_begin_clear_appdata};
 use crate::commands::web::util::{
@@ -16,6 +17,7 @@ use crate::commands::web::zfs::service::{
     RestoreJob,
 };
 use crate::commands::web::zfs::{create_snapshot, data, snapshot_name_ok, SnapAction};
+use crate::utils::locks::{LockMode, LockSpec, OpInfo, Scope};
 
 fn out_err(service: &str, msg: &str) -> RawHtml<String> {
     let (inner, title) = status_err(msg);
@@ -46,29 +48,36 @@ pub async fn service_snapshots(service: &str, config: &State<Arc<AppConfig>>) ->
 pub async fn service_snapshot_create(
     service: &str,
     config: &State<Arc<AppConfig>>,
-) -> RawHtml<String> {
+) -> Result<RawHtml<String>, Blocked> {
     if !service_name_ok(service) {
-        return RawHtml(String::new());
+        return Ok(RawHtml(String::new()));
     }
     let appdata = match trusted_appdata(config, service).await {
         Ok((_, a)) => a,
-        Err(e) => return out_err(service, &e),
+        Err(e) => return Ok(out_err(service, &e)),
     };
     let Some(loc) = locate_appdata(&appdata) else {
-        return out_err(service, "appdata is not on a ZFS dataset");
+        return Ok(out_err(service, "appdata is not on a ZFS dataset"));
     };
-    match create_snapshot(&loc.mount.dataset, &manual_snapshot_name(service)).await {
-        Ok(full) => {
-            let busy = config.clear_appdata_in_flight.contains(service);
-            let card = render_service_snapshots(service, &appdata, busy, true).await;
-            let (inner, title) = status_ok(&format!("created {full}"));
-            RawHtml(format!(
-                "{card}{}",
-                snapshot_out_oob(service, &inner, &title)
-            ))
-        }
-        Err(e) => out_err(service, &e),
-    }
+    // Shared: never a snapshot of half-restored / half-cleared data.
+    let _lock = try_lock(
+        &LockSpec::new().with(Scope::service(service), LockMode::Shared),
+        OpInfo::new("snapshot", format!("Snapshot of {service}")),
+    )?;
+    Ok(
+        match create_snapshot(&loc.mount.dataset, &manual_snapshot_name(service)).await {
+            Ok(full) => {
+                let busy = config.clear_appdata_in_flight.contains(service);
+                let card = render_service_snapshots(service, &appdata, busy, true).await;
+                let (inner, title) = status_ok(&format!("created {full}"));
+                RawHtml(format!(
+                    "{card}{}",
+                    snapshot_out_oob(service, &inner, &title)
+                ))
+            }
+            Err(e) => out_err(service, &e),
+        },
+    )
 }
 
 /// Restore the service's appdata folder from a snapshot (background job, WS progress).
@@ -77,20 +86,32 @@ pub async fn service_snapshot_restore(
     service: &str,
     snap: &str,
     config: &State<Arc<AppConfig>>,
-) -> RawHtml<String> {
+) -> Result<RawHtml<String>, Blocked> {
     if !service_name_ok(service) {
-        return RawHtml(String::new());
+        return Ok(RawHtml(String::new()));
     }
     if !snapshot_name_ok(snap) {
-        return out_err(service, "invalid snapshot name");
+        return Ok(out_err(service, "invalid snapshot name"));
     }
     let (pane, appdata) = match trusted_appdata(config, service).await {
         Ok(v) => v,
-        Err(e) => return out_err(service, &e),
+        Err(e) => return Ok(out_err(service, &e)),
     };
+    // Exclusive on the service and all its units, system shared: no unit control,
+    // pull, clear, other restore, activation, update or generation switch meanwhile.
+    let lock = try_lock(
+        &LockSpec::service_data(
+            service,
+            pane.units
+                .iter()
+                .map(|u| u.name.as_str())
+                .chain(pane.group_unit.as_deref()),
+        ),
+        OpInfo::new("restore", format!("Snapshot restore of {service}")),
+    )?;
     // Shared with clear-appdata: never both at once on one service.
     if !try_begin_clear_appdata(config, service) {
-        return out_err(service, "another appdata operation is in progress");
+        return Ok(out_err(service, "another appdata operation is in progress"));
     }
 
     let job = RestoreJob {
@@ -108,9 +129,9 @@ pub async fn service_snapshot_restore(
 
     let cfg = Arc::clone(config);
     tokio::spawn(async move {
-        run_restore(job, cfg).await;
+        run_restore(job, lock, cfg).await;
     });
-    RawHtml(format!("{card}{out}"))
+    Ok(RawHtml(format!("{card}{out}")))
 }
 
 /// Comment editor body (`comment` field; empty clears the comment).
@@ -217,14 +238,42 @@ pub async fn versioning_zfs_snapshot() -> RawHtml<String> {
     RawHtml(data::snapshot_now().await)
 }
 
+/// Data restore = reboot: nothing else may be running. The lock is kept until
+/// the reboot (or briefly, when nothing was scheduled).
+fn data_restore_lock() -> Result<crate::utils::locks::LockGuard, Blocked> {
+    try_lock(
+        &LockSpec::system_change(),
+        OpInfo::new("data-restore", "Data restore (reboot)"),
+    )
+}
+
+async fn hold_until_reboot(lock: crate::utils::locks::LockGuard) {
+    if data::restore_scheduled().await {
+        tokio::spawn(async move {
+            let _lock = lock;
+            tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+        });
+    }
+}
+
 #[post("/versioning/zfs/restore?<ds>&<snap>&<gen>")]
-pub async fn versioning_zfs_restore(ds: &str, snap: &str, gen: Option<u64>) -> RawHtml<String> {
-    RawHtml(data::restore(ds, snap, gen).await)
+pub async fn versioning_zfs_restore(
+    ds: &str,
+    snap: &str,
+    gen: Option<u64>,
+) -> Result<RawHtml<String>, Blocked> {
+    let lock = data_restore_lock()?;
+    let html = data::restore(ds, snap, gen).await;
+    hold_until_reboot(lock).await;
+    Ok(RawHtml(html))
 }
 
 #[post("/versioning/zfs/reboot")]
-pub async fn versioning_zfs_reboot() -> RawHtml<String> {
-    RawHtml(data::reboot_now().await)
+pub async fn versioning_zfs_reboot() -> Result<RawHtml<String>, Blocked> {
+    let lock = data_restore_lock()?;
+    let html = data::reboot_now().await;
+    hold_until_reboot(lock).await;
+    Ok(RawHtml(html))
 }
 
 #[post("/versioning/zfs/cancel")]

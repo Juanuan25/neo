@@ -382,6 +382,18 @@ pub async fn dismiss() -> String {
     render_card(None).await
 }
 
+/// A data restore is scheduled for the next boot.
+pub async fn restore_scheduled() -> bool {
+    match restore_target() {
+        Some((pool, _)) => get_property(&pool, PROP_RESTORE)
+            .await
+            .ok()
+            .flatten()
+            .is_some(),
+        None => false,
+    }
+}
+
 /// Reboot shortly after answering, so the response reaches the browser.
 fn schedule_reboot() {
     tokio::spawn(async {

@@ -5,6 +5,11 @@
 //! roll back all services and destroy newer snapshots. Restore instead:
 //! pre-restore snapshot → stop `neo-<svc>.target` + units → rsync the folder
 //! back from `.zfs/snapshot/<snap>/<rel>` → start what was running.
+//!
+//! The job holds the service's operation lock (system shared, service + every
+//! unit exclusive) and a **start guard** on its units while they are down, so
+//! neither the UI, the CLI, a timer, a dependency, an activation, nor a manual
+//! `systemctl start` can bring the service up on half-restored data.
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,6 +31,7 @@ use super::{
     create_snapshot, dataset_for_path, format_epoch_utc, list_snapshots, now_epoch, now_ts,
     snapshot_action, snapshot_has_path, zfs_mounts, SnapAction, Snapshot, ZfsMount,
 };
+use crate::utils::locks::LockGuard;
 
 /// Units the restore must never stop: stopping them kills the web UI running the job.
 /// Same exclusions as the service targets (nix/lib/service-targets.nix).
@@ -264,9 +270,12 @@ pub struct RestoreJob {
 }
 
 /// Background restore. The caller holds the service's in-flight slot
-/// (shared with clear-appdata); this releases it.
-pub async fn run_restore(job: RestoreJob, config: Arc<AppConfig>) {
-    let result = restore_inner(&job, &config).await;
+/// (shared with clear-appdata) and its operation lock; this releases both.
+pub async fn run_restore(job: RestoreJob, mut lock: LockGuard, config: Arc<AppConfig>) {
+    let result = restore_inner(&job, &mut lock, &config).await;
+    // Guards are gone on every path of restore_inner; drop them again to be sure.
+    lock.release_unit_guards();
+    drop(lock);
     let (inner, title) = match &result {
         Ok(msg) => status_ok(msg),
         Err(e) => status_err(e),
@@ -287,7 +296,11 @@ pub async fn run_restore(job: RestoreJob, config: Arc<AppConfig>) {
     }
 }
 
-async fn restore_inner(job: &RestoreJob, config: &Arc<AppConfig>) -> Result<String, String> {
+async fn restore_inner(
+    job: &RestoreJob,
+    lock: &mut LockGuard,
+    config: &Arc<AppConfig>,
+) -> Result<String, String> {
     let push = |msg: &str| {
         let (inner, title) = status_pulling(msg);
         let _ = config
@@ -333,6 +346,15 @@ async fn restore_inner(job: &RestoreJob, config: &Arc<AppConfig>) -> Result<Stri
         None => false,
     };
 
+    // systemd refuses to start these until the guards are released.
+    let guarded: Vec<String> = units
+        .iter()
+        .cloned()
+        .chain(job.group_unit.clone())
+        .collect();
+    lock.guard_units(&guarded)
+        .map_err(|e| format!("cannot protect units during restore: {e}"))?;
+
     push("stopping service…");
     if let Some(t) = &job.group_unit {
         if let Err(e) = systemctl_action_blocking("stop", t).await {
@@ -360,12 +382,14 @@ async fn restore_inner(job: &RestoreJob, config: &Arc<AppConfig>) -> Result<Stri
     };
 
     if let Err(e) = wait_units_stopped(&units, Duration::from_secs(120)).await {
+        lock.release_unit_guards();
         restart(Arc::clone(config)).await;
         return Err(e);
     }
 
     push(&format!("restoring files from {}…", job.snap));
     if let Err(e) = rsync_restore(&src, &job.appdata).await {
+        lock.release_unit_guards();
         restart(Arc::clone(config)).await;
         return Err(format!(
             "{e} — appdata may be partial; restore {safety} to undo"
@@ -375,6 +399,7 @@ async fn restore_inner(job: &RestoreJob, config: &Arc<AppConfig>) -> Result<Stri
     if target_was_active || !to_restart.is_empty() {
         push("starting service…");
     }
+    lock.release_unit_guards();
     restart(Arc::clone(config)).await;
 
     Ok(format!(

@@ -9,10 +9,12 @@ use rocket::response::content::RawHtml;
 use rocket::response::{Responder, Response};
 use rocket::{get, post, Request, State};
 
+use crate::commands::web::locks::{try_lock, Blocked};
 use crate::commands::web::settings::file::{export_settings_toml, import_settings_toml};
 use crate::commands::web::settings::save::refresh_after_settings_change;
 use crate::commands::web::types::AppConfig;
 use crate::commands::web::util::{alert_html, AlertKind};
+use crate::utils::locks::{LockSpec, OpInfo};
 
 pub struct TomlAttachment {
     body: String,
@@ -40,23 +42,30 @@ pub fn download_settings(config: &State<Arc<AppConfig>>) -> Result<TomlAttachmen
 }
 
 #[post("/settings/upload", data = "<data>")]
-pub async fn upload_settings(data: Data<'_>, config: &State<Arc<AppConfig>>) -> RawHtml<String> {
+pub async fn upload_settings(
+    data: Data<'_>,
+    config: &State<Arc<AppConfig>>,
+) -> Result<RawHtml<String>, Blocked> {
     let raw = match data.open(2.mebibytes()).into_string().await {
         Ok(s) if s.is_complete() => s.into_inner(),
         Ok(_) => {
-            return RawHtml(alert_html(
+            return Ok(RawHtml(alert_html(
                 AlertKind::Error,
                 "Uploaded file is too large (max 2 MiB)",
-            ));
+            )));
         }
         Err(e) => {
-            return RawHtml(alert_html(
+            return Ok(RawHtml(alert_html(
                 AlertKind::Error,
                 &format!("Could not read upload: {e}"),
-            ));
+            )));
         }
     };
-    match import_settings_toml(&config.settings_path, &raw) {
+    let _lock = try_lock(
+        &LockSpec::system_shared(),
+        OpInfo::new("settings", "Settings upload"),
+    )?;
+    Ok(match import_settings_toml(&config.settings_path, &raw) {
         Ok(()) => {
             refresh_after_settings_change(config);
             RawHtml(alert_html(
@@ -65,5 +74,5 @@ pub async fn upload_settings(data: Data<'_>, config: &State<Arc<AppConfig>>) -> 
             ))
         }
         Err(e) => RawHtml(alert_html(AlertKind::Error, &e)),
-    }
+    })
 }

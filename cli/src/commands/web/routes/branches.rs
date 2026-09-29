@@ -10,6 +10,7 @@ use crate::commands::web::git::{
     activation_branch_for_rev, collect_changes, enabled_services_at_rev, is_worktree_dirty,
     resolve_rev, settings_semantic, DiffRange,
 };
+use crate::commands::web::locks::{try_lock, Blocked};
 use crate::commands::web::settings::save::refresh_after_settings_change;
 use crate::commands::web::trigger::{
     is_activation_in_progress, trigger_activation, trigger_generation_switch,
@@ -20,6 +21,7 @@ use crate::commands::web::util::{
 };
 use crate::commands::web::version_tree;
 use crate::commands::web::version_tree::notes::NoteTarget;
+use crate::utils::locks::{LockSpec, OpInfo};
 use crate::utils::{git_cmd, GenerationMode};
 
 /// Versioning tab partial (`/configuration/versioning`); data loads client-side.
@@ -144,60 +146,71 @@ pub fn versioning_diff(config: &State<Arc<AppConfig>>, a: &str, b: &str) -> RawH
 
 /// Checkout activation branch tip for rev, then trigger full activate.
 #[post("/versioning/activate/<rev>")]
-pub fn versioning_activate(config: &State<Arc<AppConfig>>, rev: &str) -> RawHtml<String> {
+pub fn versioning_activate(
+    config: &State<Arc<AppConfig>>,
+    rev: &str,
+) -> Result<RawHtml<String>, Blocked> {
     if !rev_ok(rev) {
-        return RawHtml(r#"<span class="text-error text-xs">invalid rev</span>"#.to_string());
+        return Ok(RawHtml(
+            r#"<span class="text-error text-xs">invalid rev</span>"#.to_string(),
+        ));
     }
+    // Held across the checkout; released right before the activation takes it.
+    let lock = try_lock(
+        &LockSpec::system_change(),
+        OpInfo::new("activation", "Version restore"),
+    )?;
     if is_activation_in_progress() {
-        return RawHtml(
+        return Ok(RawHtml(
             "<span class=\"text-error text-xs\">activation already in progress</span>".to_string(),
-        );
+        ));
     }
     let dir = config_dir(&config.settings_path);
     let dir_str = dir.to_str().unwrap_or(".");
     if is_worktree_dirty(dir_str) {
-        return RawHtml(
+        return Ok(RawHtml(
             "<span class=\"text-error text-xs\">working tree dirty — cannot activate from history</span>"
                 .to_string(),
-        );
+        ));
     }
     let branch = match activation_branch_for_rev(dir_str, rev) {
         Ok(Some(b)) if branch_ok(&b) => b,
         Ok(None) => {
-            return RawHtml(
+            return Ok(RawHtml(
                 r#"<span class="text-error text-xs">activate only allowed on activation branch tips</span>"#
                     .to_string(),
-            );
+            ));
         }
         Ok(Some(_)) => {
-            return RawHtml(
+            return Ok(RawHtml(
                 r#"<span class="text-error text-xs">branch name not allowed</span>"#.to_string(),
-            );
+            ));
         }
         Err(e) => {
-            return RawHtml(format!(
+            return Ok(RawHtml(format!(
                 r#"<span class="text-error text-xs">{}</span>"#,
                 escape_html(&e)
-            ));
+            )));
         }
     };
     if let Err(e) = git_cmd(dir_str, &["switch", &branch]) {
-        return RawHtml(format!(
+        return Ok(RawHtml(format!(
             r#"<span class="text-error text-xs">checkout failed: {}</span>"#,
             escape_html(&e.to_string())
-        ));
+        )));
     }
     refresh_after_settings_change(config);
+    drop(lock);
     // Reuse existing oneshot activate path (returns HTML for monitor).
     trigger_activation()
 }
 
 #[post("/versioning/generations/<n>/switch")]
-pub fn versioning_gen_switch(n: u64) -> RawHtml<String> {
+pub fn versioning_gen_switch(n: u64) -> Result<RawHtml<String>, Blocked> {
     if !generation_ok(n) {
-        return RawHtml(
+        return Ok(RawHtml(
             r#"<span class="text-error text-xs">invalid generation</span>"#.to_string(),
-        );
+        ));
     }
     // Detached oneshot: switch-to-configuration stops neo-web; must not run in-process.
     trigger_generation_switch(n, GenerationMode::Switch)

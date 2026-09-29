@@ -6,10 +6,12 @@ use rocket::{get, post, State};
 use crate::commands::web::action_bar::{action_bar_dynamic_element, broadcast_action_bar};
 use crate::commands::web::diff::{render_changes, RenderOptions};
 use crate::commands::web::git::{collect_changes, settings_semantic, DiffRange};
+use crate::commands::web::locks::{try_lock, Blocked};
 use crate::commands::web::settings::discard_pending_changes;
 use crate::commands::web::trigger::trigger_activation;
 use crate::commands::web::types::AppConfig;
 use crate::commands::web::util::{alert_html, changes_actions_row, config_dir, AlertKind};
+use crate::utils::locks::{LockSpec, OpInfo};
 
 #[get("/changes/action-bar")]
 pub fn changes_action_bar(config: &State<Arc<AppConfig>>) -> RawHtml<String> {
@@ -53,29 +55,34 @@ pub fn changes_summary(config: &State<Arc<AppConfig>>) -> RawHtml<String> {
 }
 
 /// Shared with `/actions/reset`: restore the worktree to `HEAD`.
-pub fn discard_response(config: &AppConfig) -> RawHtml<String> {
-    RawHtml(match discard_pending_changes(config) {
+/// Not while an activation / update commits or rewrites the config repo.
+pub fn discard_response(config: &AppConfig) -> Result<RawHtml<String>, Blocked> {
+    let _lock = try_lock(
+        &LockSpec::system_shared(),
+        OpInfo::new("settings", "Discarding changes"),
+    )?;
+    Ok(RawHtml(match discard_pending_changes(config) {
         Ok(()) => alert_html(
             AlertKind::Success,
             "Pending changes discarded — back to the last committed configuration.",
         ),
         Err(e) => alert_html(AlertKind::Error, &format!("Discard failed: {e}")),
-    })
+    }))
 }
 
 #[post("/changes/revert")]
-pub fn revert_settings(config: &State<Arc<AppConfig>>) -> RawHtml<String> {
+pub fn revert_settings(config: &State<Arc<AppConfig>>) -> Result<RawHtml<String>, Blocked> {
     discard_response(config)
 }
 
 /// Shared with `/actions/activate`: trigger activation oneshot and refresh action bar.
-pub fn apply_or_activate(config: &AppConfig) -> RawHtml<String> {
-    let html = trigger_activation();
+pub fn apply_or_activate(config: &AppConfig) -> Result<RawHtml<String>, Blocked> {
+    let html = trigger_activation()?;
     broadcast_action_bar(config);
-    html
+    Ok(html)
 }
 
 #[post("/changes/apply")]
-pub fn apply_settings(config: &State<Arc<AppConfig>>) -> RawHtml<String> {
+pub fn apply_settings(config: &State<Arc<AppConfig>>) -> Result<RawHtml<String>, Blocked> {
     apply_or_activate(config)
 }

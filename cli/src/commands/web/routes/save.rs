@@ -5,12 +5,23 @@ use rocket::serde::json::Json;
 use rocket::{post, State};
 use toml_edit::{DocumentMut, Item, Table};
 
+use crate::commands::web::locks::{try_lock, Blocked};
 use crate::commands::web::plugins::{plugins_from_doc, services_to_remove, strip_service_tables};
 use crate::commands::web::settings::json_to_toml_value;
 use crate::commands::web::settings::save::{
     apply_payload_to_table, finish_save, load_settings_doc,
 };
 use crate::commands::web::types::AppConfig;
+use crate::utils::locks::{LockGuard, LockSpec, OpInfo};
+
+/// Settings writes wait for no one but are refused while an activation / update
+/// commits or rewrites the config repo (409, the form toasts the reason).
+fn settings_lock() -> Result<LockGuard, Blocked> {
+    try_lock(
+        &LockSpec::system_shared(),
+        OpInfo::new("settings", "Saving settings"),
+    )
+}
 use crate::commands::web::util::{core_section_ok, service_name_ok, CORE_NESTED_SECTIONS};
 
 /// Non-empty JSON object payload, if any.
@@ -30,12 +41,16 @@ pub fn save_service(
     config: &State<Arc<AppConfig>>,
     service: &str,
     payload: Json<serde_json::Value>,
-) -> Status {
+) -> Result<Status, Blocked> {
     if !service_name_ok(service) {
         eprintln!("web: refusing save for invalid service name {:?}", service);
-        return Status::BadRequest;
+        return Ok(Status::BadRequest);
     }
+    let _lock = settings_lock()?;
+    Ok(save_service_inner(config, service, &payload))
+}
 
+fn save_service_inner(config: &AppConfig, service: &str, payload: &serde_json::Value) -> Status {
     let settings_path = &config.settings_path;
     let mut doc = match load_settings_doc(settings_path) {
         Ok(d) => d,
@@ -52,7 +67,7 @@ pub fn save_service(
 
     // Replace [services.<service>] entirely (clean slate for this service's overrides).
     services_table.remove(service);
-    if let Some(tbl) = payload_map(&payload).and_then(payload_table) {
+    if let Some(tbl) = payload_map(payload).and_then(payload_table) {
         services_table.insert(service, Item::Table(tbl));
     }
 
@@ -64,12 +79,20 @@ pub async fn save_core_section(
     config: &State<Arc<AppConfig>>,
     section: &str,
     payload: Json<serde_json::Value>,
-) -> Status {
+) -> Result<Status, Blocked> {
     if !core_section_ok(section) {
         eprintln!("web: refusing save for unknown core section {:?}", section);
-        return Status::BadRequest;
+        return Ok(Status::BadRequest);
     }
+    let _lock = settings_lock()?;
+    Ok(save_core_section_inner(config, section, &payload).await)
+}
 
+async fn save_core_section_inner(
+    config: &AppConfig,
+    section: &str,
+    payload: &serde_json::Value,
+) -> Status {
     let settings_path = &config.settings_path;
     let mut doc = match load_settings_doc(settings_path) {
         Ok(d) => d,
@@ -85,10 +108,10 @@ pub async fn save_core_section(
     }
 
     if CORE_NESTED_SECTIONS.contains(&section) {
-        if let Err(s) = apply_core_nested_section(&mut doc, section, &payload) {
+        if let Err(s) = apply_core_nested_section(&mut doc, section, payload) {
             return s;
         }
-    } else if let Some(tbl) = payload_map(&payload).and_then(payload_table) {
+    } else if let Some(tbl) = payload_map(payload).and_then(payload_table) {
         // Top-level sections: neo-cli, disko
         doc.insert(section, Item::Table(tbl));
     }

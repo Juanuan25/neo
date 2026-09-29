@@ -7,6 +7,7 @@ use rocket::{get, post, State};
 use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
 use tokio::process::Command as AsyncCommand;
 
+use crate::commands::web::locks::{try_lock, Blocked};
 use crate::commands::web::types::AppConfig;
 use crate::commands::web::units::{
     clear_appdata_btn_oob, clear_appdata_out_oob, map_services, normalize_container_unit,
@@ -17,53 +18,71 @@ use crate::commands::web::units::{
 use crate::commands::web::util::{
     escape_html, service_name_ok, status_err, status_pulling, sudo_cmd,
 };
+use crate::utils::locks::{LockSpec, OpInfo};
 
 /// Shared post-action path: kick systemctl, push OOB once, then burst-refresh while it settles.
 /// Buttons use hx-swap="none"; the returned OOB still updates the controls row.
+/// Refused (409) while the unit is locked, e.g. its service's data is being restored.
 fn unit_action_response(
     action: UnitAction,
     unit: &str,
     config: &State<Arc<AppConfig>>,
-) -> RawHtml<String> {
+) -> Result<RawHtml<String>, Blocked> {
     if !unit_name_valid(unit) {
-        return RawHtml(String::new());
+        return Ok(RawHtml(String::new()));
     }
+    let lock = try_lock(
+        &LockSpec::unit(unit),
+        OpInfo::new("unit", format!("systemctl {} {unit}", action.as_str())),
+    )?;
     perform_unit_action(action, unit);
+    drop(lock);
     let oob = unit_controls_oob_fragment(unit, config);
     let _ = config.unit_updates.send(oob.clone());
     schedule_unit_refresh_burst(unit.to_string(), Arc::clone(config));
-    RawHtml(oob)
+    Ok(RawHtml(oob))
 }
 
 #[post("/unit/restart/<unit>")]
-pub fn unit_restart(unit: &str, config: &State<Arc<AppConfig>>) -> RawHtml<String> {
+pub fn unit_restart(
+    unit: &str,
+    config: &State<Arc<AppConfig>>,
+) -> Result<RawHtml<String>, Blocked> {
     unit_action_response(UnitAction::Restart, unit, config)
 }
 
 #[post("/unit/start/<unit>")]
-pub fn unit_start(unit: &str, config: &State<Arc<AppConfig>>) -> RawHtml<String> {
+pub fn unit_start(unit: &str, config: &State<Arc<AppConfig>>) -> Result<RawHtml<String>, Blocked> {
     unit_action_response(UnitAction::Start, unit, config)
 }
 
 #[post("/unit/stop/<unit>")]
-pub fn unit_stop(unit: &str, config: &State<Arc<AppConfig>>) -> RawHtml<String> {
+pub fn unit_stop(unit: &str, config: &State<Arc<AppConfig>>) -> Result<RawHtml<String>, Blocked> {
     unit_action_response(UnitAction::Stop, unit, config)
 }
 
 /// Kick off an async docker pull+restart. Returns immediately with OOB status +
 /// disabled ↻ button; progress and completion are pushed over `/ws/status`.
 #[post("/container/update/<container>")]
-pub fn container_update(container: &str, config: &State<Arc<AppConfig>>) -> RawHtml<String> {
+pub fn container_update(
+    container: &str,
+    config: &State<Arc<AppConfig>>,
+) -> Result<RawHtml<String>, Blocked> {
     if !unit_name_valid(container) {
-        return RawHtml(String::new());
+        return Ok(RawHtml(String::new()));
     }
     let (unit, cname) = normalize_container_unit(container);
 
+    // Held for the whole pull + restart (moved into the job).
+    let lock = try_lock(
+        &LockSpec::unit(&unit),
+        OpInfo::new("pull", format!("Image update of {unit}")),
+    )?;
     if !try_begin_pull(config, &unit) {
         let (inner, _) = status_pulling("already pulling…");
         let out = update_out_oob(&unit, &inner, "docker pull already in progress");
         let ctl = unit_controls_oob_fragment(&unit, config);
-        return RawHtml(format!("{out}{ctl}"));
+        return Ok(RawHtml(format!("{out}{ctl}")));
     }
 
     let (inner, _) = status_pulling("starting pull…");
@@ -74,36 +93,53 @@ pub fn container_update(container: &str, config: &State<Arc<AppConfig>>) -> RawH
 
     let cfg = Arc::clone(config);
     tokio::spawn(async move {
+        let _lock = lock;
         run_container_pull(unit, cname, cfg).await;
     });
 
-    RawHtml(format!("{out}{ctl}"))
+    Ok(RawHtml(format!("{out}{ctl}")))
 }
 
 /// Clear a service's appdata: stop all related units, rm -rf the declared path,
 /// then start only units that were running beforehand.
 /// Path and units come from trusted flake evaluation (never from the client).
 #[post("/service/<service>/clear-appdata")]
-pub async fn clear_appdata(service: &str, config: &State<Arc<AppConfig>>) -> RawHtml<String> {
+pub async fn clear_appdata(
+    service: &str,
+    config: &State<Arc<AppConfig>>,
+) -> Result<RawHtml<String>, Blocked> {
     if !service_name_ok(service) {
-        return RawHtml(String::new());
+        return Ok(RawHtml(String::new()));
     }
     let (pane, appdata) = match trusted_appdata(config, service).await {
         Ok(v) => v,
         Err(e) => {
             let (inner, title) = status_err(&e);
-            return RawHtml(clear_appdata_out_oob(service, &inner, &title));
+            return Ok(RawHtml(clear_appdata_out_oob(service, &inner, &title)));
         }
     };
+
+    let units: Vec<String> = pane.units.iter().map(|u| u.name.clone()).collect();
+    // Service data + every unit exclusively, system shared (no activation
+    // restarting them mid-delete). Held until the job ends.
+    let lock = try_lock(
+        &LockSpec::service_data(
+            service,
+            units
+                .iter()
+                .map(String::as_str)
+                .chain(pane.group_unit.as_deref()),
+        ),
+        OpInfo::new("clear-appdata", format!("Clearing app data of {service}")),
+    )?;
 
     if !try_begin_clear_appdata(config, service) {
         let (inner, _) = status_pulling("already clearing…");
         let out = clear_appdata_out_oob(service, &inner, "clear appdata already in progress");
         let btn = clear_appdata_btn_oob(service, &appdata, true);
-        return RawHtml(format!("{out}{btn}"));
+        return Ok(RawHtml(format!("{out}{btn}")));
     }
 
-    let units: Vec<String> = pane.units.iter().map(|u| u.name.clone()).collect();
     let (inner, _) = status_pulling("starting…");
     let out = clear_appdata_out_oob(service, &inner, "starting clear appdata");
     let btn = clear_appdata_btn_oob(service, &appdata, true);
@@ -113,10 +149,11 @@ pub async fn clear_appdata(service: &str, config: &State<Arc<AppConfig>>) -> Raw
     let cfg = Arc::clone(config);
     let svc = service.to_string();
     tokio::spawn(async move {
+        let _lock = lock;
         run_clear_appdata(svc, appdata, units, cfg).await;
     });
 
-    RawHtml(format!("{out}{btn}"))
+    Ok(RawHtml(format!("{out}{btn}")))
 }
 
 /// SSE endpoint for live journalctl follow in the logs dialog.
