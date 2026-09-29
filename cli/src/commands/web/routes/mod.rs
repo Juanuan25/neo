@@ -43,6 +43,7 @@ pub fn routes() -> Vec<rocket::Route> {
         branches::versioning_diff,
         branches::versioning_activate,
         branches::versioning_gen_switch,
+        branches::versioning_note,
         activation::op_monitor,
         nix_repair::nix_repair_start,
         units::unit_restart,

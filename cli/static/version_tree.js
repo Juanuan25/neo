@@ -96,6 +96,24 @@
     return parts.join(' · ');
   }
 
+  /** User note on a commit id / generation number from tree.notes, or ''. */
+  function commitNote(notes, id) {
+    return (notes && notes.commits && id && notes.commits[id]) || '';
+  }
+
+  function genNote(notes, n) {
+    return (notes && notes.generations && n != null && notes.generations[String(n)]) || '';
+  }
+
+  /** Form body for POST /versioning/notes (`kind` commit | generation). */
+  function noteBody(kind, id, note) {
+    var p = new URLSearchParams();
+    p.set('kind', kind);
+    p.set('id', String(id));
+    p.set('note', note == null ? '' : String(note));
+    return p.toString();
+  }
+
   var api = {
     metrics: metrics,
     laneX: laneX,
@@ -103,6 +121,9 @@
     dayKey: dayKey,
     withDays: withDays,
     changeText: changeText,
+    commitNote: commitNote,
+    genNote: genNote,
+    noteBody: noteBody,
   };
   root.NeoVersionTree = api;
   if (typeof module === 'object' && module.exports) module.exports = api;

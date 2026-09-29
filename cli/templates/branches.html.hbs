@@ -253,6 +253,7 @@
                                 :class="{ 'text-base-content/65 font-medium': it.row.commit.kind !== 'activation' }"
                                 x-text="commitTitle(it.row.commit)"></span>
                           <span x-show="it.row.commit.isHead" class="badge badge-soft badge-primary badge-xs shrink-0">Current settings</span>
+                          <span x-show="commitNote(it.row.commit)" class="badge badge-soft badge-accent badge-xs min-w-0 max-w-48 truncate block leading-4" :title="commitNote(it.row.commit)" x-text="commitNote(it.row.commit)"></span>
                         </span>
                         <span class="text-xs text-base-content/55 truncate">
                           <span x-text="commitKindLabel(it.row.commit)"></span>
@@ -282,6 +283,7 @@
                               x-text="sysTitle(it.row.system)"></span>
                         <span x-show="it.row.system.isRunning || it.row.system.isLatest" class="badge badge-soft badge-success badge-xs shrink-0">Running now</span>
                         <span x-show="it.row.system.isBoot && !it.row.system.isRunning" class="badge badge-soft badge-warning badge-xs shrink-0">Next boot</span>
+                        <span x-show="it.row.system.type === 'generation' && genNoteText(it.row.system.number)" class="badge badge-soft badge-accent badge-xs min-w-0 max-w-48 truncate block leading-4" :title="genNoteText(it.row.system.number)" x-text="genNoteText(it.row.system.number)"></span>
                       </span>
                       <span class="text-xs text-base-content/55 truncate max-w-full">
                         <span x-text="sysSubtitle(it.row)"></span>
@@ -367,6 +369,10 @@
                           <template x-if="!it.row.commit.isHead && tree.head">
                             <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" @click="showDiff(it.row.commit.id, tree.head, 'Compared with current settings')">Compare with current</button>
                           </template>
+                          <button type="button" class="btn btn-sm btn-ghost text-base-content/60 gap-1 sm:ml-auto" @click="editNote('commit', it.row.commit.id, 'settings version ' + it.row.commit.short)" title="Label this version, e.g. known good">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>
+                            <span x-text="commitNote(it.row.commit) ? 'Edit note' : 'Add note'"></span>
+                          </button>
                         </div>
                       </div>
                     </template>
@@ -427,6 +433,10 @@
                         <div class="flex flex-wrap items-center gap-2">
                           <button type="button" class="btn btn-sm btn-ghost bg-base-100 border-base-300" x-show="!it.row.system.isRunning" @click="switchGen(it.row.system.number)" x-text="'Switch to generation ' + it.row.system.number"></button>
                           <span x-show="it.row.system.isRunning" class="text-xs text-base-content/60">This system is running now.</span>
+                          <button type="button" class="btn btn-sm btn-ghost text-base-content/60 gap-1 sm:ml-auto" @click="editNote('generation', it.row.system.number, 'generation ' + it.row.system.number)" title="Label this generation, e.g. known good">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>
+                            <span x-text="genNoteText(it.row.system.number) ? 'Edit note' : 'Add note'"></span>
+                          </button>
                         </div>
                       </div>
                     </template>

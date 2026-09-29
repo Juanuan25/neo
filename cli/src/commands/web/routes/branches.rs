@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use rocket::form::Form;
 use rocket::response::content::{RawHtml, RawJson};
-use rocket::{get, post, State};
+use rocket::{get, post, FromForm, State};
 use rocket_dyn_templates::Template;
 
 use crate::commands::web::diff::{render_changes, RenderOptions};
@@ -18,6 +19,7 @@ use crate::commands::web::util::{
     branch_ok, config_dir, escape_html, generation_ok, rev_ok, sudo_cmd,
 };
 use crate::commands::web::version_tree;
+use crate::commands::web::version_tree::notes::NoteTarget;
 use crate::utils::{git_cmd, GenerationMode};
 
 /// Versioning tab partial (`/configuration/versioning`); data loads client-side.
@@ -46,6 +48,43 @@ pub async fn versioning_tree(
         ),
         Err(e) => RawJson(serde_json::json!({ "error": e.to_string() }).to_string()),
     }
+}
+
+/// Body of `POST /versioning/notes`: `kind` = `commit` | `generation`,
+/// `id` = full commit id | generation number, `note` (empty clears).
+#[derive(FromForm)]
+pub struct NoteForm {
+    kind: String,
+    id: String,
+    note: String,
+}
+
+/// Set or clear the note on a settings version or a system generation.
+#[post("/versioning/notes", data = "<form>")]
+pub async fn versioning_note(form: Form<NoteForm>) -> RawJson<String> {
+    let f = form.into_inner();
+    let target = match f.kind.as_str() {
+        "commit" => Ok(NoteTarget::Commit(f.id.clone())),
+        "generation" => match f.id.parse::<u64>() {
+            Ok(n) => version_tree::generation_created(n)
+                .map(|c| NoteTarget::Generation(n, c))
+                .ok_or_else(|| format!("generation {n} not found")),
+            Err(_) => Err("invalid generation".to_string()),
+        },
+        _ => Err("invalid note target".to_string()),
+    };
+    let res = match target {
+        Ok(t) => rocket::tokio::task::spawn_blocking(move || {
+            version_tree::notes::set(&t, &f.note).map_err(|e| format!("{e:#}"))
+        })
+        .await
+        .unwrap_or_else(|e| Err(e.to_string())),
+        Err(e) => Err(e),
+    };
+    RawJson(match res {
+        Ok(()) => serde_json::json!({ "ok": true }).to_string(),
+        Err(e) => serde_json::json!({ "error": e }).to_string(),
+    })
 }
 
 /// Enabled/disabled services from `settings.toml` at a revision.

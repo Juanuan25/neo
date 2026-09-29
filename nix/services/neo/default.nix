@@ -83,6 +83,9 @@
             User = "homeserver";
             Group = "homeserver";
             ExecStart = "${neoPkg}/bin/neo web";
+            # /var/lib/neo-web ($STATE_DIRECTORY): version notes. On the root fs,
+            # so a Neo data restore does not rewind them.
+            StateDirectory = "neo-web";
             Restart = "always";
             RestartSec = 5;
           };

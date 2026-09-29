@@ -3,6 +3,21 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const VT = require('./version_tree.js');
 
+test('notes look up commits and generations', () => {
+  const notes = { commits: { abc: 'known good' }, generations: { 7: 'fresh setup' } };
+  assert.equal(VT.commitNote(notes, 'abc'), 'known good');
+  assert.equal(VT.commitNote(notes, 'def'), '');
+  assert.equal(VT.genNote(notes, 7), 'fresh setup');
+  assert.equal(VT.genNote(notes, 8), '');
+  assert.equal(VT.genNote(null, 7), '');
+  assert.equal(VT.commitNote(undefined, 'abc'), '');
+});
+
+test('note form body is url-encoded', () => {
+  assert.equal(VT.noteBody('generation', 7, 'a & b'), 'kind=generation&id=7&note=a+%26+b');
+  assert.equal(VT.noteBody('commit', 'abc', null), 'kind=commit&id=abc&note=');
+});
+
 test('metrics shrink lanes to fit and vanish without lanes', () => {
   assert.deepEqual(VT.metrics(0), { pad: 0, lw: 0, width: 0 });
   const one = VT.metrics(1);

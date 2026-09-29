@@ -13,7 +13,7 @@
 //! * [`build_tree`] merges both newest-first sequences into rows (a commit and
 //!   the generation it created share a row), assigns lanes to both DAGs and
 //!   derives the sync / drift status.
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::Serialize;
 
@@ -609,6 +609,16 @@ pub struct TreeView {
     pub status: StatusView,
     pub has_more: bool,
     pub limit: usize,
+    /// User notes on versions and generations (filled by the loader).
+    pub notes: NotesView,
+}
+
+/// Notes shown on the timeline: commit id → note, generation number → note.
+#[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotesView {
+    pub commits: BTreeMap<String, String>,
+    pub generations: BTreeMap<u64, String>,
 }
 
 fn short(id: &str) -> String {
@@ -942,6 +952,7 @@ pub fn build_tree(input: &TreeInput) -> TreeView {
         status,
         has_more,
         limit,
+        notes: NotesView::default(),
     }
 }
 

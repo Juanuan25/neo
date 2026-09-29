@@ -7,6 +7,7 @@
 mod changes;
 mod lanes;
 mod model;
+pub mod notes;
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -220,7 +221,8 @@ pub fn load(config_path: &str, limit: usize, sudo_cmd: &str) -> TreeView {
         .filter(|r| !commits.iter().any(|c| c.generation == Some(*r)))
         .and_then(|r| commit_for_generation(dir, r));
 
-    build_tree(&TreeInput {
+    let gen_created: Vec<(u64, i64)> = links.iter().map(|l| (l.number, l.created)).collect();
+    let mut view = build_tree(&TreeInput {
         commits,
         head,
         head_generation,
@@ -234,7 +236,17 @@ pub fn load(config_path: &str, limit: usize, sudo_cmd: &str) -> TreeView {
         reflog,
         running_commit_fallback,
         limit,
-    })
+    });
+    view.notes = notes::load().view(&gen_created);
+    view
+}
+
+/// Generation `n` and its link creation time, if it exists.
+pub fn generation_created(n: u64) -> Option<i64> {
+    generation_links()
+        .into_iter()
+        .find(|l| l.number == n)
+        .map(|l| l.created)
 }
 
 #[cfg(test)]

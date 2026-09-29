@@ -706,6 +706,37 @@ window.versioningPage = function versioningPage() {
       this.post('/actions/activate', 'Activating current settings');
     },
 
+    commitNote(c) {
+      return c ? VT.commitNote(this.tree && this.tree.notes, c.id) : '';
+    },
+
+    genNoteText(n) {
+      return VT.genNote(this.tree && this.tree.notes, n);
+    },
+
+    /** Set / clear the note on a version (`commit`, full id) or a generation (number). */
+    editNote(kind, id, label) {
+      var cur = kind === 'commit' ? VT.commitNote(this.tree && this.tree.notes, id) : this.genNoteText(id);
+      var note = window.prompt('Note for ' + label + ' (empty to remove):', cur || '');
+      if (note === null) return;
+      var self = this;
+      fetch('/versioning/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: VT.noteBody(kind, id, note),
+      })
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (res) {
+          if (res.error) throw new Error(res.error);
+          return self.loadTree();
+        })
+        .catch(function (e) {
+          toast('Saving the note failed: ' + (e && e.message ? e.message : e), 'error');
+        });
+    },
+
     switchGen(n) {
       var msg =
         'Switch the running system to generation ' + n + '?\n\n' +
