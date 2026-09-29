@@ -4,6 +4,12 @@
 let currentBlockedUrl = '';
 let currentKey = null;       // currently visible service key
 const serviceIframes = {};   // key -> iframe element
+// Best-effort "deepest known URL" per key. Filled from a same-origin location
+// read (rare — services live on other subdomains) or from a postMessage the
+// embedded page sends us (see the `message` listener below). Falls back to the
+// iframe's `src` when neither is available, e.g. for the many third-party apps
+// that do not know about neo. Never persisted (no long-lived deep-link cache).
+const iframeKnownUrl = {};
 
 // Home-screen launch (iOS sets navigator.standalone; others use display-mode).
 (function markStandalone() {
@@ -70,21 +76,77 @@ function getViewerHost() {
   return document.getElementById('viewer-host');
 }
 
-/** Best-effort URL for the top bar / open-in-new-tab (same-origin location, else iframe.src). */
-function iframeDisplayUrl(iframe) {
+/**
+ * Best-effort URL for the top bar / open-in-new-tab / copy.
+ * Preference order: a live same-origin read (freshest — only ever works for
+ * services sharing our exact origin, essentially never true across subdomains),
+ * then the last URL the iframe told us about via postMessage (see below), then
+ * the src we last navigated it to.
+ */
+function iframeDisplayUrl(iframe, key) {
   if (!iframe) return '';
   try {
     const loc = iframe.contentWindow?.location?.href;
     if (loc && !loc.startsWith('about:')) return loc;
   } catch (_) { /* cross-origin — normal for most external services */ }
+  const known = key && iframeKnownUrl[key];
+  if (known) return known;
   const src = iframe.src || '';
   return src.startsWith('about:') ? '' : src;
 }
 
 function setTopBarUrl(url) {
   const urlEl = document.getElementById('current-url');
-  if (urlEl) urlEl.textContent = url || '';
+  if (!urlEl) return;
+  urlEl.value = url || '';
+  // `<input>` has no child text nodes for a CSS :empty check to see — toggle a
+  // class instead so the pill still hides until a service has loaded.
+  const pill = urlEl.closest('.neo-url-pill');
+  if (pill) pill.classList.toggle('is-empty', !url);
 }
+
+/**
+ * Cross-origin deep-link tracking.
+ *
+ * Services live on their own subdomains, so `iframe.contentWindow.location` is
+ * blocked by the same-origin policy almost everywhere (the try/catch above is
+ * the whole story for same-origin). There is no generic, unprivileged way for
+ * a parent page to observe navigation inside a cross-origin iframe.
+ *
+ * This listener implements the receiving half of a small opt-in contract: an
+ * embedded page (or a script injected by the reverse proxy) may
+ *   window.parent.postMessage({ source: 'neo-iframe-location', href: location.href }, '*')
+ * on load/popstate/hashchange/pushState/replaceState, and we will reflect that
+ * into the top bar. Nothing sends this message today — a generic SWAG-side
+ * injection (nginx `sub_filter` adding this snippet to every proxied text/html
+ * response) was considered but deliberately not built here: it touches the
+ * shared reverse-proxy config every service goes through, and whether the SWAG
+ * image's nginx even has `ngx_http_sub_filter_module` compiled in could not be
+ * verified without booting the VM. A wrong shared change there takes every
+ * proxied vhost down (see AGENTS.md's SWAG traps), so it needs its own,
+ * VM-tested change. The contract itself is generic and forward-compatible in
+ * the meantime: any service (or a per-app userscript) that adopts it starts
+ * working with no further changes here.
+ *
+ * Validation: `event.source` must be the contentWindow of one of *our* tracked
+ * iframes (this is a browser-guaranteed identity, not attacker-controllable —
+ * postMessage's `source` cannot be spoofed by the sender), and `event.origin`
+ * must exactly match the origin we ourselves navigated that iframe to.
+ */
+window.addEventListener('message', (e) => {
+  const data = e && e.data;
+  if (!data || data.source !== 'neo-iframe-location' || typeof data.href !== 'string') return;
+  for (const key in serviceIframes) {
+    const iframe = serviceIframes[key];
+    if (!iframe || iframe.contentWindow !== e.source) continue;
+    let expectedOrigin = '';
+    try { expectedOrigin = new URL(iframe.src, location.href).origin; } catch (_) { /* ignore */ }
+    if (!expectedOrigin || e.origin !== expectedOrigin) return;
+    iframeKnownUrl[key] = data.href;
+    if (currentKey === key) setTopBarUrl(data.href);
+    return;
+  }
+});
 
 function updateWarmIndicators() {
   // Show green dot on all warm (pre-loaded) services, including the currently selected one.
@@ -128,6 +190,7 @@ function hardEvictService(key) {
     iframe.parentNode.removeChild(iframe);
   }
   delete serviceIframes[key];
+  delete iframeKnownUrl[key];
   updateWarmIndicators();
 
   if (currentKey === key) {
@@ -137,8 +200,6 @@ function hardEvictService(key) {
     showWelcome();
 
     setTopBarUrl('');
-    const status = document.getElementById('status');
-    if (status) status.textContent = 'Ready';
   }
 }
 
@@ -183,6 +244,7 @@ function getOrCreateIframe(key, targetUrl) {
 
   // Set src only on first creation — this is the expensive step we avoid on later switches
   iframe.src = targetUrl;
+  iframeKnownUrl[key] = targetUrl;
 
   host.appendChild(iframe);
   serviceIframes[key] = iframe;
@@ -191,11 +253,8 @@ function getOrCreateIframe(key, targetUrl) {
   // Update top bar after full loads (same-origin can show the real path)
   iframe.onload = () => {
     if (currentKey === key) {
-      const loc = iframeDisplayUrl(iframe);
+      const loc = iframeDisplayUrl(iframe, key);
       if (loc) setTopBarUrl(loc);
-      const status = document.getElementById('status');
-      if (status && key === '__config') status.textContent = 'config';
-      else if (status && key) status.textContent = key;
     }
   };
 
@@ -220,7 +279,7 @@ function showOnly(key) {
     serviceIframes[key].style.display = '';
     currentKey = key;
 
-    const loc = iframeDisplayUrl(serviceIframes[key]);
+    const loc = iframeDisplayUrl(serviceIframes[key], key);
     if (loc) setTopBarUrl(loc);
   } else {
     currentKey = null;
@@ -250,7 +309,7 @@ function openTabUrlFor(subOrKey, domain) {
   const key = subOrKey === 'neo' ? '__config' : subOrKey;
   const warm = serviceIframes[key];
   if (warm) {
-    const loc = iframeDisplayUrl(warm);
+    const loc = iframeDisplayUrl(warm, key);
     if (loc) return loc;
   }
   if (subOrKey === 'neo') return configTargetUrl(subOrKey, domain);
@@ -271,9 +330,6 @@ function handleSidebarClick(e, subOrKey, domain, btn) {
 }
 
 function loadService(subdomain, domain, btn) {
-  const urlEl = document.getElementById('current-url');
-  const status = document.getElementById('status');
-
   const key = subdomain;
   const svcName = (btn && btn.dataset && btn.dataset.name) || '';
   const isNeo = subdomain === 'neo' || svcName.toLowerCase() === 'neo';
@@ -297,7 +353,7 @@ function loadService(subdomain, domain, btn) {
   const iframeCompatibleAttr = (btn && btn.dataset && btn.dataset.iframeCompatible);
   const isIframeCompatible = iframeCompatibleAttr == null || iframeCompatibleAttr !== 'false';
   if (!isIframeCompatible) {
-    showEmbeddingBlocked(targetUrl, svcName || subdomain, btn, key);
+    showEmbeddingBlocked(targetUrl, btn, key);
     return;
   }
 
@@ -307,21 +363,13 @@ function loadService(subdomain, domain, btn) {
 
   showOnly(key);
 
-  const display = iframeDisplayUrl(iframe) || targetUrl;
-  if (urlEl) urlEl.textContent = display;
-  status.textContent = `Loading ${subdomain}...`;
+  const display = iframeDisplayUrl(iframe, key) || targetUrl;
+  setTopBarUrl(display);
 
   setActive(btn);
-
-  if (iframe.style.display !== 'none') {
-    status.textContent = subdomain;
-  }
 }
 
 function loadConfig(btn, subdomain, domain) {
-  const urlEl = document.getElementById('current-url');
-  const status = document.getElementById('status');
-
   hideAllOverlays();
   currentBlockedUrl = '';
 
@@ -347,17 +395,14 @@ function loadConfig(btn, subdomain, domain) {
 
   showOnly(key);
 
-  const display = iframeDisplayUrl(iframe) || targetUrl;
-  if (urlEl) urlEl.textContent = display;
-  status.textContent = 'Loading config editor...';
+  const display = iframeDisplayUrl(iframe, key) || targetUrl;
+  setTopBarUrl(display);
 
   setActive(btn);
 }
 
-function showEmbeddingBlocked(url, label, btn, key) {
+function showEmbeddingBlocked(url, btn, key) {
   const blocked = document.getElementById('embedding-blocked');
-  const urlEl = document.getElementById('current-url');
-  const status = document.getElementById('status');
   const host = getViewerHost();
 
   if (host) host.style.visibility = 'hidden';
@@ -372,8 +417,7 @@ function showEmbeddingBlocked(url, label, btn, key) {
     currentKey = key;
   }
 
-  if (urlEl) urlEl.textContent = url;
-  status.textContent = `${label} (embedding protected)`;
+  setTopBarUrl(url);
 
   setActive(btn);
   updateWarmIndicators();
@@ -396,16 +440,16 @@ function reloadFrame() {
   if (iframe && iframe.src && !iframe.src.startsWith('about:')) {
     const currentSrc = iframe.src;
     iframe.src = currentSrc;
+    // Reloading always returns to the canonical root (iframe.src never tracks
+    // an in-app deep link — see the module comment), so the known URL resets too.
+    iframeKnownUrl[currentKey] = currentSrc;
     setTopBarUrl(currentSrc);
-
-    const status = document.getElementById('status');
-    if (status) status.textContent = `Reloading ${currentKey}...`;
   }
 }
 
 function openInNewTab() {
   if (currentKey && serviceIframes[currentKey]) {
-    const url = iframeDisplayUrl(serviceIframes[currentKey]);
+    const url = iframeDisplayUrl(serviceIframes[currentKey], currentKey);
     if (url) {
       window.open(url, '_blank');
       return;
@@ -454,3 +498,15 @@ document.body.addEventListener('htmx:afterSwap', function (evt) {
     updateWarmIndicators();
   }
 });
+
+// Top-bar URL: select the whole value on tap/focus so the native copy pop-up
+// appears (readonly input — iOS/Android both offer Copy on a text selection).
+(function () {
+  const urlEl = document.getElementById('current-url');
+  if (!urlEl) return;
+  const selectAll = () => {
+    try { urlEl.select(); } catch (_) {}
+  };
+  urlEl.addEventListener('focus', selectAll);
+  urlEl.addEventListener('click', selectAll);
+})();

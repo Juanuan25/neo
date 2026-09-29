@@ -157,7 +157,10 @@ body {
 }
 
 
-/* Top-bar address pill: hidden until an app is loaded. */
-.neo-url-pill:has(#current-url:empty) {
+/* Top-bar address pill: hidden until an app is loaded. `#current-url` is a
+   readonly <input> (so mobile tap-to-select/copy works) — it never has child
+   text nodes, so a CSS `:empty` check on it can't detect an empty value; the
+   `.is-empty` class is toggled by setTopBarUrl() in neo.js instead. */
+.neo-url-pill.is-empty {
   visibility: hidden;
 }
