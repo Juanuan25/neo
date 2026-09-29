@@ -141,14 +141,12 @@
       NEO_ZFS_RESTORE_DATASET = dataDataset;
     };
 
-    services.zfs.autoSnapshot = lib.mkIf cfg.enabled {
+    # zfstools prunes with `zfs destroy -d`: a snapshot pinned in the web UI
+    # (`zfs hold neo-pin`) is only marked for deferred destroy and survives.
+    services.zfs.autoSnapshot = lib.mkIf (cfg.enabled && cfg.autoSnapshot.enabled) {
       enable = true;
       flags = "-k -p --utc";
-      frequent = 4;
-      hourly = 12;
-      daily = 7;
-      weekly = 4;
-      monthly = 3;
+      inherit (cfg.autoSnapshot) frequent hourly daily weekly monthly;
     };
 
     # Disko owns the root dataset; ensure the Neo data volume mountpoints only.
