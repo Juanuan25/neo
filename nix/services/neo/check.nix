@@ -87,7 +87,8 @@
     wanted = builtins.elem "multi-user.target" (bootstrap.wantedBy or []);
     runsAsHomeserver = (bootstrap.serviceConfig.User or "") == "homeserver";
     noRestartOnSwitch =
-      (bootstrap.stopIfChanged or true) == false
+      (bootstrap.stopIfChanged or true)
+      == false
       && (bootstrap.restartIfChanged or true) == false;
   in {
     checks.neo-bootstrap = pkgs.runCommand "neo-bootstrap" {} ''

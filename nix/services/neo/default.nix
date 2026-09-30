@@ -45,48 +45,50 @@
         # "Blocked: Activation in progress", neo-web (Requires=) stays down, and
         # the leftover failed state survives after the lock is released. Same
         # pattern as neo-auto-update. Re-run on boot or systemctl start.
-        systemd.services.neo-bootstrap = lib.neo.mkSetupService {
-          inherit pkgs;
-          name = "neo-bootstrap";
-          description = "Bootstrap nixos config git repo";
-          blocking = true;
-          retryInterval = null;
-          wantedBy = ["multi-user.target"];
-          before = ["neo-web.service" "multi-user.target"];
-          after = ["network-online.target"];
-          wants = ["network-online.target"];
-          path = [
-            neoPkg
-            pkgs.git
-            pkgs.nix
-            pkgs.nixos-rebuild
-            pkgs.nixos-install-tools
-            pkgs.coreutils
-            pkgs.bash
-            pkgs.jq
-          ];
-          environment = {
-            NIX_BINARY_PATH = "${pkgs.nix}/bin/nix";
-            SUDO_BINARY_PATH = "/run/wrappers/bin/sudo";
-          };
-          serviceConfig = {
-            Restart = "no";
-            User = "homeserver";
-            Group = "homeserver";
-            ExecStartPre = [
-              "+${pkgs.writeShellScript "neo-bootstrap-ensure-config" ''
-                set -euo pipefail
-                ${ensureConfigRepo}
-              ''}"
+        systemd.services.neo-bootstrap =
+          lib.neo.mkSetupService {
+            inherit pkgs;
+            name = "neo-bootstrap";
+            description = "Bootstrap nixos config git repo";
+            blocking = true;
+            retryInterval = null;
+            wantedBy = ["multi-user.target"];
+            before = ["neo-web.service" "multi-user.target"];
+            after = ["network-online.target"];
+            wants = ["network-online.target"];
+            path = [
+              neoPkg
+              pkgs.git
+              pkgs.nix
+              pkgs.nixos-rebuild
+              pkgs.nixos-install-tools
+              pkgs.coreutils
+              pkgs.bash
+              pkgs.jq
             ];
+            environment = {
+              NIX_BINARY_PATH = "${pkgs.nix}/bin/nix";
+              SUDO_BINARY_PATH = "/run/wrappers/bin/sudo";
+            };
+            serviceConfig = {
+              Restart = "no";
+              User = "homeserver";
+              Group = "homeserver";
+              ExecStartPre = [
+                "+${pkgs.writeShellScript "neo-bootstrap-ensure-config" ''
+                  set -euo pipefail
+                  ${ensureConfigRepo}
+                ''}"
+              ];
+            };
+            script = ''
+              ${neoPkg}/bin/neo --profile server init
+            '';
+          }
+          // {
+            stopIfChanged = false;
+            restartIfChanged = false;
           };
-          script = ''
-            ${neoPkg}/bin/neo --profile server init
-          '';
-        } // {
-          stopIfChanged = false;
-          restartIfChanged = false;
-        };
 
         systemd.services.neo-web = {
           description = "Neo Homeserver Web UI (config editor)";
