@@ -203,7 +203,10 @@
 
       users.users.hermes = {
         extraGroups = ["wheel" "docker"];
-        linger = true;
+        # Hermes runs as system units only; linger would spawn user@hermes, whose
+        # dead bus makes switch-to-configuration exit 4. false (not null) also
+        # disables linger left behind on existing hosts.
+        linger = false;
       };
 
       # Agent needs unrestricted host control (docker, systemctl, package tools, …).
