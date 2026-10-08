@@ -64,7 +64,7 @@ in {
           id = "bcrypt-user";
           kind = "form";
           label = "Helper";
-          description = "Fill this list entry with a username:bcrypt_hash line for tinyauth (TINYAUTH_AUTH_USERS). Use + Add for a new row first.";
+          description = "Fill this list entry with a username:bcrypt_hash line (htpasswd format, e.g. tinyauth or registry users). Use + Add for a new row first.";
           # set (not append): UI applies to a specific list index via target.index
           apply = "set";
           script = scripts + "/bcrypt-user.sh";

@@ -86,7 +86,7 @@ If the machine at home has no public IP, route the traffic with [streamproxy](do
 
 Enable what you want in the web UI.
 
-- **Files.** Filebrowser, Dufs (WebDAV), Syncthing, Nextcloud, Collabora, Paperless, Docmost, Stirling PDF, Gitea
+- **Files.** Filebrowser, Dufs (WebDAV), Syncthing, Nextcloud, Collabora, Paperless, Docmost, Stirling PDF, Gitea, Docker registry
 - **Photos.** Immich, Immich Drop
 - **Media.** Jellyfin, Sonarr, Radarr, the rest of the \*arr stack, from the [highsea.neo](https://github.com/madebydamo/highsea.neo) plugin
 - **Passwords.** Vaultwarden
