@@ -194,6 +194,10 @@
                 package = pkgs.nix;
                 name = "nix-env";
               }
+              # web UI "Regenerate" on the root-owned machine git key (core/git.nix)
+              {
+                command = "/run/current-system/sw/bin/neo-git-ssh-key";
+              }
               # after profile switch: `/nix/var/nix/profiles/system/bin/switch-to-configuration`
               {
                 command = "/nix/var/nix/profiles/system/bin/switch-to-configuration";

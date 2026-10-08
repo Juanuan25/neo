@@ -73,18 +73,6 @@
               description = "Bootstrap method: 'template' uses flake init, 'clone' uses git clone from repoUrl";
               rank = 40;
             };
-            gitUserName = mkOption {
-              type = types.str;
-              default = "Neo Bootstrap";
-              description = "Git user.name used for initial commits";
-              rank = 50;
-            };
-            gitUserEmail = mkOption {
-              type = types.str;
-              default = "neo@local";
-              description = "Git user.email used for initial commits";
-              rank = 60;
-            };
             defaultBranch = mkOption {
               type = types.str;
               default = "master";

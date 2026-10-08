@@ -15,8 +15,9 @@ pub fn init(
     let repo_url = neo_cli_get(config, profile, "repoUrl").filter(|s| !s.is_empty());
     let bootstrap_method = neo_cli_get(config, profile, "bootstrapMethod").unwrap_or("template");
     let template = resolve_template(config, profile);
-    let git_user_name = neo_cli_get(config, profile, "gitUserName").unwrap_or("Neo Bootstrap");
-    let git_user_email = neo_cli_get(config, profile, "gitUserEmail").unwrap_or("neo@local");
+    // Machine git identity (core.git); baked defaults always carry both keys.
+    let git_user_name = core_git_get(config, "userName").unwrap_or("Neo");
+    let git_user_email = core_git_get(config, "userEmail").unwrap_or("neo@local");
     let default_branch = neo_cli_get(config, profile, "defaultBranch").unwrap_or("master");
     if dry_run {
         println!(
@@ -28,8 +29,8 @@ pub fn init(
             println!("  repoUrl: {}", url);
         }
         println!("  template: {}", template);
-        println!("  gitUserName: {}", git_user_name);
-        println!("  gitUserEmail: {}", git_user_email);
+        println!("  core.git.userName: {}", git_user_name);
+        println!("  core.git.userEmail: {}", git_user_email);
         println!("  defaultBranch: {}", default_branch);
         println!("  Actions: mkdir, smart-git-bootstrap (clone/template+git-init+remote if applicable), set-git-config, generate_hardware, paste_settings, update_inputs, git-add+commit");
         return Ok(());
@@ -97,4 +98,14 @@ pub fn init(
     }
     println!("Repository ready at {}", config_path);
     Ok(())
+}
+
+fn core_git_get<'a>(config: &'a DocumentMut, key: &str) -> Option<&'a str> {
+    config
+        .get("core")?
+        .get("git")?
+        .get(key)?
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
 }

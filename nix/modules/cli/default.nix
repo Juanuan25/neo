@@ -97,8 +97,6 @@
       template = "${neoCli.template or "github:madebydamo/neo#homeserver"}"
       bootstrapMethod = "${neoCli.bootstrapMethod or "template"}"
       repoUrl = "${neoCli.repoUrl or ""}"
-      gitUserName = "${neoCli.gitUserName or "Neo Bootstrap"}"
-      gitUserEmail = "${neoCli.gitUserEmail or "neo@local"}"
       defaultBranch = "${neoCli.defaultBranch or "master"}"
       rebuildBranchFormat = "${neoCli.rebuildBranchFormat or "%Y%m%d-%H%M%S"}"
       [neo-cli.local]
@@ -109,6 +107,9 @@
       configPath = "${serverCfg.configPath or defaultServerPath}"
       neoInput = "${serverCfg.neoInput or "github:madebydamo/neo"}"
       template = "${serverCfg.template or ""}"
+      [core.git]
+      userName = ${builtins.toJSON (cfg.core.git.userName or "Neo")}
+      userEmail = ${builtins.toJSON (cfg.core.git.userEmail or "neo@local")}
       [disko]
       enabled = ${
         if cfg.disko.enabled or false

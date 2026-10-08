@@ -18,6 +18,44 @@
         rank = 0;
       };
 
+      # Machine git identity (modules/core/git.nix): homeserver builds/fetches
+      # with it (private plugins), Hermes commits and clones with it.
+      options.neo.core.git.userName = mkOption {
+        type = types.str;
+        default = "Neo";
+        description = "Git user.name for commits on this machine (config repo, Hermes)";
+        rank = 0;
+      };
+
+      options.neo.core.git.userEmail = mkOption {
+        type = types.str;
+        default = "neo@${config.neo.core.hostname}";
+        description = "Git user.email for commits on this machine (config repo, Hermes)";
+        rank = 10;
+      };
+
+      options.neo.core.git.tokens = mkOption {
+        type = types.attrsOf types.str;
+        default = {};
+        example = {"github.com" = "github_pat_…";};
+        description = "HTTPS access tokens per git host (e.g. github.com = a fine-grained PAT with read access to your private plugin repos). Used for git over https and for Nix github:/gitlab: inputs. GitLab tokens for Nix need the PAT: prefix. SSH URLs (git+ssh://git@host/owner/repo) use the machine git SSH key instead";
+        rank = 20;
+      };
+
+      options.neo.core.git.knownHosts = mkOption {
+        type = types.attrsOf types.str;
+        default = {};
+        description = "Extra git hosts reached over SSH with the machine git key, with their pinned SSH host public key (from ssh-keyscan -t ed25519 <host>, without the leading host name). github.com, gitlab.com and codeberg.org are always included. Use host:port as the name for a non-standard SSH port (e.g. a Gitea at git.example.com:2222). Apply a new host before adding a plugin that lives on it";
+        rank = 30;
+      };
+
+      options.neo.core.git.users = mkOption {
+        type = types.listOf types.str;
+        default = [];
+        description = "Local users that use the machine git identity (SSH key and tokens). Modules append themselves (core: homeserver; Hermes: hermes).";
+        internal = true;
+      };
+
       options.neo.core.plugins = mkOption {
         type = types.listOf types.str;
         default = [];

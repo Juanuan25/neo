@@ -52,9 +52,14 @@
       <div class="flex-1 h-px bg-base-content/10" aria-hidden="true"></div>
     </div>
 
-    <div hx-get="/ssh/public-key-card" hx-trigger="load" hx-swap="innerHTML">
+    <div hx-get="/ssh/homeserver/public-key-card" hx-trigger="load" hx-swap="innerHTML">
       <div class="rounded-box border border-base-300 bg-base-100 p-4 text-xs text-base-content/50 flex items-center gap-2">
         <span class="loading loading-spinner loading-xs"></span> Loading SSH public key…
+      </div>
+    </div>
+    <div hx-get="/ssh/git/public-key-card" hx-trigger="load" hx-swap="innerHTML">
+      <div class="rounded-box border border-base-300 bg-base-100 p-4 text-xs text-base-content/50 flex items-center gap-2">
+        <span class="loading loading-spinner loading-xs"></span> Loading git SSH public key…
       </div>
     </div>
 

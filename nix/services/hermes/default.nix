@@ -129,6 +129,8 @@
         TELEGRAM_ALLOWED_USERS = lib.concatStringsSep "," (map toString cfg.telegramAllowedUserId);
         TELEGRAM_HOME_CHANNEL = telegramHomeChannel;
         GATEWAY_HEALTH_URL = "http://127.0.0.1:${toString cfg.gatewayPort}";
+        # gh CLI; git itself gets the token from the machine git identity.
+        GH_TOKEN = config.neo.core.git.tokens."github.com" or null;
       }
       // lib.neo.mkHermesLlmEnv {
         inherit (llm) provider apiKey;
@@ -200,6 +202,9 @@
           '';
         }
       ];
+
+      # Machine git identity (neo.core.git): SSH key, tokens, user.name/email.
+      neo.core.git.users = ["hermes"];
 
       users.users.hermes = {
         extraGroups = ["wheel" "docker"];

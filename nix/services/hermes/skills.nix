@@ -15,6 +15,8 @@
     volumes = config.neo.core.volumes;
     domain = config.neo.services.swag.domain or null;
     neo = lib.neo;
+    gitCfg = config.neo.core.git;
+    gitSshHosts = lib.attrNames gitCfg.knownHosts;
 
     skillServices = neo.getSkillServices config;
     skillConfs = lib.mapAttrsToList (_: svc: svc.skill.conf) skillServices;
@@ -79,6 +81,22 @@
 
           ## Plugins
           Extra flakes listed under Neo plugins export `nixosModules.default` into the same `neo.services.*` option space. Treat them like built-in services once enabled.
+          Private plugins: `git+ssh://git@<host>/<owner>/<repo>` (machine git SSH key) or `github:<owner>/<repo>` (needs a `core.git.tokens` entry for github.com).
+
+          ## Git identity
+          You commit, clone and push as the machine git identity (`core.git`): ${gitCfg.userName} <${gitCfg.userEmail}>.
+          - SSH (key `${neo.gitSshKey}`, public key in the Neo web UI): ${
+            if gitSshHosts == []
+            then "no hosts configured"
+            else lib.concatStringsSep ", " gitSshHosts
+          }
+          - HTTPS tokens: ${
+            if gitCfg.tokens == {}
+            then "none"
+            else lib.concatStringsSep ", " (lib.attrNames gitCfg.tokens)
+          }${lib.optionalString (gitCfg.tokens ? "github.com") " (`gh` is authenticated through `GH_TOKEN`)"}
+          - Do not create your own SSH keys or git credentials; ask the operator to add a host to `core.git.knownHosts` or a token to `core.git.tokens`.
+          - Never commit to or push the Neo config repo by hand: configuration changes go through settings and `neo activate`.
 
           ## Rollbacks
           NixOS generations: bad activate → boot previous generation or `nixos-rebuild switch --rollback` (with care). Data in volumes is independent of generations.

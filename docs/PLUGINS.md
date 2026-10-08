@@ -43,6 +43,33 @@ Use a public flake URL:
 github:madebydamo/highsea.neo
 ```
 
+### Private remote plugin
+
+The homeserver fetches plugins as the machine git identity (**Core → git** in the web UI, `[core.git]` in `settings.toml`). Pick one:
+
+- **SSH** — copy the **Git SSH public key** from the Core page into your forge (account SSH key, or a read-only deploy key on the plugin repo), then use an SSH URL:
+
+  ```text
+  git+ssh://git@github.com/you/my-plugin
+  ```
+
+  github.com, gitlab.com and codeberg.org are always trusted. Add your own forge to `core.git.knownHosts` (`ssh-keyscan -t ed25519 git.example.com`, without the host name; use `git.example.com:2222` as the name for a non-standard port) and **apply it before adding the plugin**: the build fetches plugins before the new host key is active.
+
+- **Token** — add an access token for the host, then keep the short URL:
+
+  ```toml
+  [core.git.tokens]
+  "github.com" = "github_pat_…"   # fine-grained, read-only contents on the plugin repos
+  ```
+
+  ```text
+  github:you/my-plugin
+  ```
+
+  The same token works for `git+https://` URLs. GitLab tokens need the `PAT:` prefix for `gitlab:` URLs.
+
+Only the build user (homeserver) and Hermes get these credentials. Root does not need them: the switch step reuses inputs the build already fetched.
+
 ### Local plugin (development or private code)
 
 If the plugin lives on disk:

@@ -10,49 +10,14 @@
     uid = toString config.neo.core.uid;
     gid = toString config.neo.core.gid;
     # Shared by activation (ensure) and neo-web rotate (rm + ensure).
-    homeserverSshKey = pkgs.writeShellScriptBin "neo-homeserver-ssh-key" ''
-      set -euo pipefail
-      SSH_DIR=/home/homeserver/.ssh
-      KEY="$SSH_DIR/id_ed25519"
-      OWNER_UID=${uid}
-      OWNER_GID=${gid}
-      COMMENT="homeserver@${cfg.hostname}"
-
-      mode="''${1:-ensure}"
-      case "$mode" in
-        ensure|rotate) ;;
-        *)
-          echo "usage: neo-homeserver-ssh-key [ensure|rotate]" >&2
-          exit 2
-          ;;
-      esac
-
-      if [ ! -d /home/homeserver ]; then
-        echo "homeserver home missing at /home/homeserver" >&2
-        exit 1
-      fi
-
-      if [ ! -d "$SSH_DIR" ]; then
-        mkdir -p "$SSH_DIR"
-        chmod 700 "$SSH_DIR"
-        if [ "$(id -u)" -eq 0 ]; then
-          chown "$OWNER_UID:$OWNER_GID" "$SSH_DIR"
-        fi
-      fi
-
-      if [ "$mode" = rotate ]; then
-        rm -f "$KEY" "$KEY.pub"
-      fi
-
-      if [ ! -f "$KEY" ]; then
-        ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -N "" -f "$KEY" -C "$COMMENT"
-        chmod 600 "$KEY"
-        chmod 644 "$KEY.pub"
-        if [ "$(id -u)" -eq 0 ]; then
-          chown "$OWNER_UID:$OWNER_GID" "$KEY" "$KEY.pub"
-        fi
-      fi
-    '';
+    homeserverSshKey = lib.neo.mkSshKeyScript pkgs {
+      name = "neo-homeserver-ssh-key";
+      path = lib.neo.defaultHomeserverSshKey;
+      owner = uid;
+      group = gid;
+      comment = "homeserver@${cfg.hostname}";
+      requireDir = "/home/homeserver";
+    };
   in {
     boot.loader = {
       grub = {

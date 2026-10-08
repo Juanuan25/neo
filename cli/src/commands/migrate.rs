@@ -98,6 +98,7 @@ const CUSTOM_MIGRATIONS: &[(&str, MigrationFn)] = &[
         "007-neo-cli-profile-inputs",
         migrate_007_neo_cli_profile_inputs,
     ),
+    ("008-core-git-identity", migrate_008_core_git_identity),
 ];
 
 /// Delete retired [neo-service] and [nixos] tables.
@@ -373,6 +374,25 @@ fn migrate_007_neo_cli_profile_inputs(doc: &mut DocumentMut) {
             insert_dotted(doc, &format!("neo-cli.{profile}.{key}"), item.clone());
         }
         remove_dotted(doc, &format!("neo-cli.{key}"));
+    }
+}
+
+/// neo-cli.gitUserName/gitUserEmail → core.git.userName/userEmail (the machine
+/// git identity). Custom so it runs after 003, which still moves the keys into
+/// neo-cli. An existing core.git value wins.
+fn migrate_008_core_git_identity(doc: &mut DocumentMut) {
+    for (from, to) in [("gitUserName", "userName"), ("gitUserEmail", "userEmail")] {
+        let Some(val) = remove_dotted(doc, &format!("neo-cli.{from}")) else {
+            continue;
+        };
+        let taken = doc
+            .get("core")
+            .and_then(|t| t.get("git"))
+            .and_then(|t| t.as_table_like())
+            .is_some_and(|t| t.contains_key(to));
+        if !taken {
+            insert_dotted(doc, &format!("core.git.{to}"), val);
+        }
     }
 }
 
@@ -658,6 +678,37 @@ configPath = "/home/damo/Documents/projects/homeserver/neo/build"
             !apply_migrations(&mut doc),
             "second run must report no further migrations"
         );
+    }
+
+    #[test]
+    fn migration_008_moves_git_identity_to_core() {
+        let raw = r#"
+[core.git]
+userEmail = "kept@example.com"
+
+[neo-cli]
+gitUserName = "Ops"
+gitUserEmail = "old@example.com"
+defaultBranch = "master"
+"#;
+        let mut doc: DocumentMut = raw.parse().unwrap();
+        assert!(apply_migrations(&mut doc));
+
+        let git = doc
+            .get("core")
+            .and_then(|t| t.get("git"))
+            .and_then(|t| t.as_table())
+            .unwrap();
+        assert_eq!(git.get("userName").and_then(|v| v.as_str()), Some("Ops"));
+        assert_eq!(
+            git.get("userEmail").and_then(|v| v.as_str()),
+            Some("kept@example.com"),
+            "an existing core.git value wins"
+        );
+        let cli = doc.get("neo-cli").and_then(|t| t.as_table()).unwrap();
+        assert!(!cli.contains_key("gitUserName"));
+        assert!(!cli.contains_key("gitUserEmail"));
+        assert!(cli.contains_key("defaultBranch"));
     }
 
     #[test]
