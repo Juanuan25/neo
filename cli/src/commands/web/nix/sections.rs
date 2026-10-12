@@ -114,6 +114,18 @@ pub fn label_options(opts: &mut [OptionSchema]) {
     }
 }
 
+/// Drop crumb segments that repeat the section title ("Git" inside Git).
+fn crumb_without_group(crumb: &str, group_label: &str) -> String {
+    if crumb.is_empty() || group_label.is_empty() {
+        return crumb.to_string();
+    }
+    crumb
+        .split(" › ")
+        .filter(|part| !part.eq_ignore_ascii_case(group_label))
+        .collect::<Vec<_>>()
+        .join(" › ")
+}
+
 /// General (ungrouped, always first) + `ui.group` sections ordered by rank, then
 /// first appearance. Option order inside a section follows the extract order.
 pub fn build_sections(opts: &[OptionSchema]) -> Vec<OptionSection> {
@@ -126,10 +138,18 @@ pub fn build_sections(opts: &[OptionSchema]) -> Vec<OptionSection> {
     let mut groups: Vec<(i64, OptionSection)> = Vec::new();
     for o in opts {
         let summary = o.ui.as_ref().is_some_and(|u| u.summary);
-        let group = o.ui.as_ref().and_then(|u| u.group.as_ref());
+        // Clone so the section title can be borrowed while the option is placed.
+        let group = o.ui.as_ref().and_then(|u| u.group.clone());
+        let mut placed = o.clone();
         let section = match group {
             None => &mut general,
             Some(g) => {
+                let label = if g.label.is_empty() {
+                    humanize(&g.id)
+                } else {
+                    g.label.clone()
+                };
+                placed.crumb = crumb_without_group(&placed.crumb, &label);
                 let idx = match groups.iter().position(|(_, s)| s.id == g.id) {
                     Some(i) => i,
                     None => {
@@ -137,11 +157,7 @@ pub fn build_sections(opts: &[OptionSchema]) -> Vec<OptionSection> {
                             g.rank,
                             OptionSection {
                                 id: g.id.clone(),
-                                label: if g.label.is_empty() {
-                                    humanize(&g.id)
-                                } else {
-                                    g.label.clone()
-                                },
+                                label,
                                 description: g.description.clone(),
                                 icon: g.icon.clone(),
                                 collapsible: true,
@@ -155,9 +171,9 @@ pub fn build_sections(opts: &[OptionSchema]) -> Vec<OptionSection> {
             }
         };
         if summary {
-            section.summary.push(o.name.clone());
+            section.summary.push(placed.name.clone());
         }
-        section.options.push(o.clone());
+        section.options.push(placed);
     }
     // Stable sort keeps first-appearance order among equal ranks.
     groups.sort_by_key(|(rank, _)| *rank);
@@ -245,6 +261,53 @@ mod tests {
         assert_eq!(s[0].options.len(), 2);
         assert!(!s[0].collapsible);
         assert_eq!(s[1].summary, ["subdomain"]);
+    }
+
+    #[test]
+    fn group_crumb_drops_the_section_title() {
+        let mut opts = vec![
+            opt(serde_json::json!({
+                "name": "git.userName",
+                "type": {"kind": "str"},
+                "typeLabel": "str",
+                "ui": {"group": {"id": "git", "label": "Git", "rank": 20}}
+            })),
+            opt(serde_json::json!({
+                "name": "nix.remoteBuild.host",
+                "type": {"kind": "str"},
+                "typeLabel": "str",
+                "ui": {"group": {"id": "nix", "label": "Nix", "rank": 30}}
+            })),
+            opt(serde_json::json!({
+                "name": "ssh.authorizedKeys",
+                "type": {"kind": "listOf", "elem": {"kind": "str"}},
+                "typeLabel": "list of str",
+                "ui": {"group": {"id": "ssh", "label": "SSH", "rank": 10}}
+            })),
+            opt(serde_json::json!({
+                "name": "auth.publicPaths",
+                "type": {"kind": "listOf", "elem": {"kind": "str"}},
+                "typeLabel": "list of str",
+                "ui": {"group": {"id": "access", "label": "Access & security", "rank": 100}}
+            })),
+        ];
+        label_options(&mut opts);
+        let s = build_sections(&opts);
+        let crumb = |id: &str, name: &str| {
+            s.iter()
+                .find(|sec| sec.id == id)
+                .unwrap()
+                .options
+                .iter()
+                .find(|o| o.name == name)
+                .unwrap()
+                .crumb
+                .clone()
+        };
+        assert_eq!(crumb("git", "git.userName"), "");
+        assert_eq!(crumb("nix", "nix.remoteBuild.host"), "Remote build");
+        assert_eq!(crumb("ssh", "ssh.authorizedKeys"), "");
+        assert_eq!(crumb("access", "auth.publicPaths"), "Auth");
     }
 
     #[test]

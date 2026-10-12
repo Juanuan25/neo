@@ -6,7 +6,47 @@
     ...
   }:
     with lib;
-    with {inherit (lib.neo) mkOption mkEnableOption;}; {
+    with {inherit (lib.neo) mkOption mkEnableOption;}; let
+      ui = lib.neo.ui;
+      # Collapsible sections on the System page. Ranks order the sections
+      # after General; option ranks still order fields inside each section.
+      group = {
+        ssh = ui.mkGroup {
+          id = "ssh";
+          label = "SSH";
+          description = "Login keys for admin and homeserver, and the optional console password";
+          icon = "key";
+          rank = 10;
+        };
+        git = ui.mkGroup {
+          id = "git";
+          label = "Git";
+          description = "Machine git identity for commits, private plugins and Hermes";
+          icon = "git";
+          rank = 20;
+        };
+        volumes = ui.mkGroup {
+          id = "volumes";
+          label = "Volumes";
+          description = "Where Neo stores service data, media and documents";
+          icon = "folder";
+          rank = 30;
+        };
+        nix = ui.mkGroup {
+          id = "nix";
+          label = "Nix";
+          description = "Local build limits and the remote builder";
+          icon = "cpu";
+          rank = 40;
+        };
+      };
+      inGroup = g: ui.mkUi {group = g;};
+      summarized = g:
+        ui.mkUi {
+          group = g;
+          summary = true;
+        };
+    in {
       options.neo.core.ssh.authorizedKeys = mkOption {
         type = types.listOf types.str;
         default = [];
@@ -16,6 +56,7 @@
           When empty, password auth stays enabled so you are not locked out before adding a key.
         '';
         rank = 0;
+        ui = inGroup group.ssh;
       };
 
       # Machine git identity (modules/core/git.nix): homeserver builds/fetches
@@ -25,6 +66,7 @@
         default = "Neo";
         description = "Git user.name for commits on this machine (config repo, Hermes)";
         rank = 0;
+        ui = summarized group.git;
       };
 
       options.neo.core.git.userEmail = mkOption {
@@ -32,6 +74,7 @@
         default = "neo@${config.neo.core.hostname}";
         description = "Git user.email for commits on this machine (config repo, Hermes)";
         rank = 10;
+        ui = summarized group.git;
       };
 
       options.neo.core.git.tokens = mkOption {
@@ -40,6 +83,7 @@
         example = {"github.com" = "github_pat_…";};
         description = "HTTPS access tokens per git host (e.g. github.com = a fine-grained PAT with read access to your private plugin repos). Used for git over https and for Nix github:/gitlab: inputs. GitLab tokens for Nix need the PAT: prefix. SSH URLs (git+ssh://git@host/owner/repo) use the machine git SSH key instead";
         rank = 20;
+        ui = inGroup group.git;
       };
 
       options.neo.core.git.knownHosts = mkOption {
@@ -47,6 +91,7 @@
         default = {};
         description = "Extra git hosts reached over SSH with the machine git key, with their pinned SSH host public key (from ssh-keyscan -t ed25519 <host>, without the leading host name). github.com, gitlab.com and codeberg.org are always included. Use host:port as the name for a non-standard SSH port (e.g. a Gitea at git.example.com:2222). Apply a new host before adding a plugin that lives on it";
         rank = 30;
+        ui = inGroup group.git;
       };
 
       options.neo.core.git.users = mkOption {
@@ -80,6 +125,7 @@
         description = "Optional SHA-512 hash for the admin and homeserver users (web UI \"Hash password\" helper, or `mkpasswd -m sha-512` / `openssl passwd -6`). Empty (default) locks password login: SSH with authorizedKeys. Set this only if you want a console/sudo password. There is no shipped default password.";
         rank = 20;
         helper = lib.neo.helpers.mkpasswdSha512;
+        ui = inGroup group.ssh;
       };
 
       options.neo.core.timeZone = mkOption {
@@ -112,6 +158,7 @@
         default = null;
         description = "If set, configures nix.settings.max-jobs (maximum parallel Nix derivations). Recommendations: ≤ 8 GB RAM → 1; 8–16 GB RAM → leave it on default (null)";
         rank = 60;
+        ui = inGroup group.nix;
       };
 
       options.neo.core.nix.cores = mkOption {
@@ -119,6 +166,7 @@
         default = null;
         description = "If set, configures nix.settings.cores (cores per Nix build job). Pair with maxJobs using the same recommendations: ≤ 8 GB RAM → 1; 8–16 GB RAM → leave it on default (null)";
         rank = 70;
+        ui = inGroup group.nix;
       };
 
       # Local ranks inside remoteBuild.* only (parent rank places the group under core.nix).
@@ -128,6 +176,7 @@
             {
               enabled = mkEnableOption "Offload Nix builds to a remote machine over SSH (uses the homeserver key by default)" {
                 rank = 0;
+                ui = summarized group.nix;
               };
 
               maxJobs = mkOption {
@@ -177,6 +226,7 @@
         default = {};
         description = "Remote Nix builder: when enabled, heavy builds (including nixosConfigurations) are delegated over SSH so a weak local machine only evaluates and fetches results";
         rank = 81;
+        ui = inGroup group.nix;
       };
 
       options.neo.core.volumes.root = mkOption {
@@ -184,6 +234,7 @@
         default = "/var/neo";
         description = "Root volume path";
         rank = 89;
+        ui = summarized group.volumes;
       };
 
       options.neo.core.volumes.appdata = mkOption {
@@ -191,6 +242,7 @@
         default = "${config.neo.core.volumes.root}/DATA/AppData";
         description = "AppData volume path";
         rank = 90;
+        ui = inGroup group.volumes;
       };
 
       options.neo.core.volumes.data = mkOption {
@@ -198,6 +250,7 @@
         default = "${config.neo.core.volumes.root}/DATA";
         description = "Data volume path";
         rank = 100;
+        ui = inGroup group.volumes;
       };
 
       options.neo.core.volumes.media = mkOption {
@@ -205,6 +258,7 @@
         default = "${config.neo.core.volumes.root}/DATA/Media";
         description = "Media volume path";
         rank = 110;
+        ui = inGroup group.volumes;
       };
 
       options.neo.core.volumes.documents = mkOption {
@@ -212,6 +266,7 @@
         default = "${config.neo.core.volumes.root}/DATA/Documents";
         description = "Documents volume path";
         rank = 120;
+        ui = inGroup group.volumes;
       };
 
       options.neo.migrations.applied = mkOption {
