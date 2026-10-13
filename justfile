@@ -1,8 +1,8 @@
 qemu_monitor_host := "127.0.0.1"
 qemu_monitor_port := "4444"
 qemu_monitor := qemu_monitor_host + ":" + qemu_monitor_port
-# admin (not root): neo disables PermitRootLogin when authorizedKeys are set
-ssh_opts := "-i tools/development_ed25519 -p 2222 -o StrictHostKeyChecking=no admin@localhost"
+# Dev VM root shell (vm module: key-only PermitRootLogin). Real installs stay admin/homeserver.
+ssh_opts := "-i tools/development_ed25519 -p 2222 -o StrictHostKeyChecking=no root@localhost"
 # Ext4 dev VM. The disko/ZFS VM must never open or replace this image.
 disk_image := "nixos.qcow2"
 # Persistent qcow2 chain for the disko VM (base/ + overlay). See vm-configuration.nix.

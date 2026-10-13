@@ -25,6 +25,10 @@
       (lib.fileContents (self + "/tools/development_ed25519.pub"))
     ];
 
+    # `just ssh` is root@ with that key. Real installs do not import this module
+    # and keep PermitRootLogin = no. prohibit-password is public-key only.
+    services.openssh.settings.PermitRootLogin = lib.mkForce "prohibit-password";
+
     users.allowNoPasswordLogin = true;
     users.mutableUsers = false;
     # boot.loader.grub.device = "/dev/vda";
