@@ -51,15 +51,58 @@ shutdown:
   pkill -9 -f "$qemu_pat" 2>/dev/null || true
   sleep 2
 
+# virtfs for local plugin checkouts. Tag is "h" plus the first 8 hex chars of
+# sha256(path), the same as shareTag in nix/output/device/vm-configuration.nix.
+host_virtfs:
+  #!/usr/bin/env python3
+  import hashlib
+  import pathlib
+  import tomllib
+
+  candidates = [pathlib.Path("build/settings.toml"), pathlib.Path("settings.toml")]
+  settings = next((p for p in candidates if p.exists()), None)
+  plugins = []
+  if settings is not None:
+      data = tomllib.loads(settings.read_text())
+      plugins = (data.get("core") or {}).get("plugins") or []
+
+  dirs = []
+  for url in plugins:
+      if not isinstance(url, str):
+          continue
+      base = url.split("#", 1)[0]
+      for prefix in ("git+file://", "git+file:", "path:"):
+          if base.startswith(prefix):
+              base = base[len(prefix):]
+              break
+      else:
+          if not base.startswith("/"):
+              continue
+      if base:
+          dirs.append(base.rstrip("/"))
+
+  roots = []
+  for path in sorted(set(dirs)):
+      if any(path != other and path.startswith(other + "/") for other in dirs):
+          continue
+      if "," in path:
+          raise SystemExit("plugin path cannot contain a comma: " + path)
+      roots.append(path)
+
+  for path in roots:
+      tag = "h" + hashlib.sha256(path.encode()).hexdigest()[:8]
+      print("-virtfs local,path=%s,security_model=none,mount_tag=%s,id=%s" % (path, tag, tag))
+
 launch: shutdown build
   #!/usr/bin/env bash
+  shares=$(just host_virtfs)
   if [ -f ./build/result/bin/run-nixos-vm ]; then
     QEMU_NET_OPTS="hostfwd=tcp::2222-:22" \
-    QEMU_OPTS="-smp 4 -m 8G -monitor tcp:{{qemu_monitor}},server,nowait" \
+    QEMU_OPTS="-smp 4 -m 8G -monitor tcp:{{qemu_monitor}},server,nowait ${shares}" \
     ./build/result/bin/run-nixos-vm &
   else
     QEMU_NET_OPTS="hostfwd=tcp::2222-:22" \
-    QEMU_OPTS="-smp 4 -m 8G -monitor tcp:{{qemu_monitor}},server,nowait" \
+    QEMU_OPTS="-smp 4 -m 8G -monitor tcp:{{qemu_monitor}},server,nowait ${shares}" \
     DISKO_VM_STATE_DIR="$PWD/{{disko_disk_dir}}" \
     ./build/result/bin/disko-vm &
   fi
