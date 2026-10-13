@@ -32,6 +32,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/example"
             // lib.neo.mkServiceMeta {
               category = "Utilities";
+              # A URL string, or a file path next to this module (`./icon.png`).
               icon = "https://filebrowser.org/static/logo.png";
               description = ''
                 Example service. Replace with your own description.

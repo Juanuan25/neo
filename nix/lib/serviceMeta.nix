@@ -20,9 +20,12 @@
             type = types.submodule {
               options = {
                 icon = mkOption {
-                  type = types.nullOr types.str;
+                  # String first so a site path (`/static/…`) or `https://` URL stays a
+                  # string. A path (`./icon.svg`) is the other branch; eval's toJSON
+                  # copies it into the Nix store and the web UI serves that file.
+                  type = types.nullOr (types.either types.str types.path);
                   default = icon;
-                  description = "Icon shown in the option pane (image URL recommended).";
+                  description = "Icon shown in the web UI. A URL string, or a file path (for example ./icon.svg) that neo serves itself.";
                 };
                 description = mkOption {
                   type = types.str;

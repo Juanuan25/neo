@@ -152,6 +152,9 @@ impl NixEvaluator {
                 let inventory = extracted.plugin_inventory.clone();
                 for group in &mut extracted.groups {
                     attach_service_plugin_badges(&mut group.services, &inventory);
+                    for service in &mut group.services {
+                        self.icons.link(&mut service.icon);
+                    }
                 }
                 IndexContext {
                     groups: extracted.groups,
@@ -234,13 +237,17 @@ impl NixEvaluator {
         let sections = super::sections::build_sections(&opts);
         let options_json = serde_json::to_string(&opts).unwrap_or_else(|_| "[]".to_string());
         let units = map_units(raw.units, &raw.timers, &raw.setup_units, &raw.containers);
+        let mut meta = raw.meta;
+        if let Some(meta) = meta.as_mut() {
+            self.icons.link(&mut meta.icon);
+        }
         let inv_urls: Vec<String> = raw.plugin_inventory.iter().map(|p| p.url.clone()).collect();
         let plugins = plugin_badges(&raw.plugin_urls, &inv_urls);
         let plugin_inventory_json =
             serde_json::to_string(&raw.plugin_inventory).unwrap_or_else(|_| "[]".to_string());
         OptionPaneContext {
             service: label.to_string(),
-            meta: raw.meta,
+            meta,
             options: opts,
             sections,
             options_json,
@@ -282,6 +289,7 @@ impl NixEvaluator {
         let dom = ctx.domain.clone();
         for s in &mut ctx.services {
             s.domain = dom.clone();
+            self.icons.link(&mut s.icon);
             if s.initials.is_empty() {
                 s.initials = s.name.chars().take(2).collect::<String>().to_uppercase();
             }

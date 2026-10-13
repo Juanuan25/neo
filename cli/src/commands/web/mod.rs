@@ -12,6 +12,7 @@ mod action_bar;
 mod diff;
 mod git;
 mod helper_exec;
+mod icons;
 mod locks;
 mod nix;
 mod nix_repair;
@@ -51,6 +52,7 @@ pub fn web(settings_path: PathBuf, nix_cmd: &str, config_path: &str) -> Result<(
         let evaluator = nix::NixEvaluator::new(nix_cmd, &neo_input_for_eval, busy.clone())
             .await
             .context("start persistent nix repl for fast evals")?;
+        let icons = evaluator.icons.clone();
         let (unit_tx, _unit_rx) = broadcast::channel::<String>(128);
         let app_config = Arc::new(AppConfig {
             settings_path,
@@ -88,6 +90,7 @@ pub fn web(settings_path: PathBuf, nix_cmd: &str, config_path: &str) -> Result<(
 
         let widgets_dir = PathBuf::from(&template_dir).join("options/widgets");
         mount_static_assets(rocket::build(), &static_dir, &widgets_dir)
+            .manage(icons)
             .manage(app_config)
             .attach(Template::fairing())
             .configure(rocket::Config::figment().merge(("template_dir", template_dir)))

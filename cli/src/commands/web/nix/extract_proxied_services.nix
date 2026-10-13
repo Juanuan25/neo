@@ -23,6 +23,8 @@
       units = safeList (svc.systemdUnits or []);
       timers = safeList (svc.systemdTimers or []);
       subdomain = svc.subdomain or "";
+      # A path stays a path. builtins.toJSON copies it to /nix/store/…-file,
+      # and the web UI rewrites that to /service-icons/…. A URL string is unchanged.
       icon = meta.icon or null;
       rank = meta.rank or null;
       iframeCompatible = meta.iframeCompatible or true;

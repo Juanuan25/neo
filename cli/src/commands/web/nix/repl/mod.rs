@@ -20,6 +20,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStderr, Command as TokioCommand};
 use tokio::time::timeout;
 
+use super::super::icons::IconSet;
 use super::registry::NIX_EXTRACTORS;
 
 /// How long to keep reading stderr after the first `error:` line so multi-line
@@ -27,6 +28,8 @@ use super::registry::NIX_EXTRACTORS;
 const STDERR_ERROR_SETTLE: Duration = Duration::from_millis(200);
 
 pub struct NixEvaluator {
+    /// Store files published while extracting service icons.
+    pub icons: Arc<IconSet>,
     child: Child,
     stdin: tokio::process::ChildStdin,
     stdout: BufReader<tokio::process::ChildStdout>,
@@ -76,6 +79,7 @@ impl NixEvaluator {
         let (child, stdin, stdout, stderr) =
             Self::spawn_repl_process(nix_cmd, neo_input, neo_flake_path.as_deref())?;
         let mut this = NixEvaluator {
+            icons: Arc::new(IconSet::nix_store()),
             child,
             stdin,
             stdout,

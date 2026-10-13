@@ -905,6 +905,7 @@
     then inventory.owners.${service} or []
     else [];
 
+  # icon may be a path. Leave it as a path so toJSON copies the file into the store.
   meta = tryOr {} (configRoot.meta or {});
   units = tryOr [] (configRoot.systemdUnits or []);
   timers = tryOr [] (configRoot.systemdTimers or []);

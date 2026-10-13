@@ -3,6 +3,7 @@ mod activation;
 mod branches;
 mod changes;
 mod helpers;
+mod icons;
 mod locks;
 mod nix_repair;
 mod oauth;
@@ -20,6 +21,7 @@ use rocket::routes;
 pub fn routes() -> Vec<rocket::Route> {
     routes![
         pages::site_webmanifest,
+        icons::service_icon,
         pages::index,
         pages::nav_services,
         // Configuration shell + HTMX partials.

@@ -22,6 +22,8 @@
         if enabled
         then safeList (svc.systemdTimers or [])
         else [];
+      # A path stays a path. builtins.toJSON copies it to /nix/store/…-file,
+      # and the web UI rewrites that to /service-icons/…. A URL string is unchanged.
       icon = meta.icon or null;
       rank = meta.rank or null;
       category =
