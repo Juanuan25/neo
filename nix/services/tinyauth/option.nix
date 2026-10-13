@@ -131,7 +131,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/tinyauth"
             // lib.neo.mkServiceMeta {
               category = "Security";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/tinyauth.svg";
+              icon = ./icon.svg;
               description = ''
                 Tinyauth is the tiniest OpenID Connect (OIDC) authentication and authorization server for your self-hosted applications.
                 It functions as lightweight middleware adding secure username/password (bcrypt + optional TOTP), OAuth (GitHub, Google, generic), and LDAP login flows, working seamlessly with reverse proxies such as SWAG/Nginx, Traefik, and Caddy.

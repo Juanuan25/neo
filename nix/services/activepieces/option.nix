@@ -69,7 +69,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/activepieces"
             // lib.neo.mkServiceMeta {
               category = "Utilities";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/activepieces.svg";
+              icon = ./icon.svg;
               description = ''
                 Activepieces is an open-source no-code automation platform (Zapier/Make alternative) for building flows that connect apps via pieces, webhooks, and schedules.
                 Neo runs the official production stack: the app container (API + worker), Postgres with pgvector, and Redis for the job queue, all on the internal Docker network behind SWAG and tinyauth.

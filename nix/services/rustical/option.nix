@@ -58,7 +58,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/rustical"
             // lib.neo.mkServiceMeta {
               category = "Utilities";
-              icon = "https://radicale.org/assets/logo.svg";
+              icon = ./icon.svg;
               description = ''
                 RustiCal is a lightweight CalDAV and CardDAV server written in Rust, storing everything in a single SQLite database that is easy to back up.
                 It serves calendars and contacts to DAVx5, Apple Calendar, Thunderbird, Evolution, GNOME, Home Assistant, and similar clients, with WebDAV Push for near-instant sync, a Nextcloud-compatible login flow, and Apple configuration profiles.

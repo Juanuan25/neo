@@ -53,7 +53,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/vikunja"
             // lib.neo.mkServiceMeta {
               category = "Utilities";
-              icon = "https://vikunja.io/images/vikunja-logo.svg";
+              icon = ./icon.svg;
               description = ''
                 Vikunja is the open-source task manager closest to Todoist: projects, labels, priorities, repeating tasks, natural-language quick add, saved filters, sharing, and list / Kanban / Gantt / table views.
                 It is installed from nixpkgs (pkgs.vikunja) and run by the NixOS module services.vikunja. The process binds 127.0.0.1; SWAG reaches it through host.docker.internal. SQLite and uploaded files live in Neo appdata (<appdata>/vikunja).

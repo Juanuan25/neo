@@ -55,7 +55,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/webtop"
             // lib.neo.mkServiceMeta {
               category = "Utilities";
-              icon = "https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/webtop-logo.png";
+              icon = ./icon.png;
               description = ''
                 Webtop (linuxserver/webtop) is a full Linux desktop environment streamed to any modern browser via Selkies.
                 Neo defaults to Ubuntu XFCE (tag ubuntu-xfce) as a lightweight, familiar desktop; the home directory persists under appdata.

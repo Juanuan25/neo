@@ -35,7 +35,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/changedetection"
             // lib.neo.mkServiceMeta {
               category = "Utilities";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/changedetection.svg";
+              icon = ./icon.svg;
               description = ''
                 Changedetection.io is the best and simplest open-source tool for website change detection, web page monitoring, and website change alerts.
                 Monitor any URL for content, price, or structural changes and get notified instantly via Discord, Email, Slack, Telegram, Webhooks, and over 85 other services.

@@ -34,7 +34,7 @@
             }
             // lib.neo.mkServiceMeta {
               category = "Utilities";
-              icon = "https://raw.githubusercontent.com/Ivan-Malinovski/calino/main/public/calino-icon.svg";
+              icon = ./icon.svg;
               description = ''
                 Calino is a lightweight browser CalDAV client: month/week/day views, tasks, journals, and CardDAV contacts, with no Calino-side account or database.
                 The Docker image is a static SPA; calendars stay on your CalDAV server (RustiCal on this host, or any RFC 4791 server you configure in the UI).

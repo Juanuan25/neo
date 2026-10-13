@@ -43,7 +43,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/pihole"
             // lib.neo.mkServiceMeta {
               category = "Network";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/pi-hole.svg";
+              icon = ./icon.svg;
               description = ''
                 Pi-hole is a powerful network-wide ad blocker that acts as a DNS sinkhole, protecting all devices on your network from unwanted advertisements, trackers, and malware.
                 It requires no client software on individual devices and blocks content even in mobile apps, smart TVs, and other non-browser locations.

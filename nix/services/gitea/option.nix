@@ -82,7 +82,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/gitea"
             // lib.neo.mkServiceMeta {
               category = "Files";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/gitea.svg";
+              icon = ./icon.svg;
               description = ''
                 Gitea is a lightweight, self-hosted Git service with issues, PRs, and package registries.
                 Neo runs the official Docker image with SQLite storage under appdata — suitable for private

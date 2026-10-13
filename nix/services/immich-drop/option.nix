@@ -23,7 +23,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/immich-drop"
             // lib.neo.mkServiceMeta {
               category = "Media";
-              icon = "https://raw.githubusercontent.com/immich-app/immich/main/design/immich-logo.svg";
+              icon = ./icon.svg;
               description = ''
                 Immich Drop is a tiny, zero-login web app for collecting photos/videos from anyone into your Immich server.
                 Admin users log in with Immich credentials to create public invite links (always public-by-URL) supporting optional passwords, expiry, one-time use, and target albums (auto-created if needed).

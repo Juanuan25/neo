@@ -31,7 +31,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/beszel"
             // lib.neo.mkServiceMeta {
               category = "Monitoring";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/beszel.svg";
+              icon = ./icon.svg;
               description = ''
                 Beszel is a simple, lightweight server monitoring platform that provides Docker and Podman stats, historical metrics, and configurable alerts for CPU, memory, disk, bandwidth, temperature and more.
                 It uses a central hub (web UI built on PocketBase) paired with tiny agents that report metrics from your servers and containers over websocket.

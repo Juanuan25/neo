@@ -225,7 +225,7 @@
             // lib.neo.mkAppdata config.neo.services.hermes.stateDir
             // lib.neo.mkServiceMeta {
               category = "AI";
-              icon = "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/static/img/logo.png";
+              icon = ./icon.png;
               description = ''
                 Hermes Agent is the self-improving AI agent built by Nous Research. The only agent with a built-in learning loop — it creates skills from experience, improves them during use, nudges itself to persist knowledge, and builds a deepening model of who you are across sessions.
                 It is not a coding copilot tethered to an IDE or a chatbot wrapper around a single API. An autonomous agent that lives on your server, remembers what it learns, and gets more capable the longer it runs. Deploy it on a $5 VPS, a GPU cluster, or serverless infrastructure that costs nearly nothing when idle.

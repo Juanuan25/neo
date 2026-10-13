@@ -66,7 +66,7 @@
             // lib.neo.mkAppdata (lib.neo.mkUpdaterPaths config.neo.core.volumes.appdata).systemHistoryDir
             // lib.neo.mkServiceMeta {
               category = "Core";
-              icon = "https://api.iconify.design/mdi/update.svg";
+              icon = ./icon.svg;
               description = ''
                 Periodically runs neo update + activate so system packages and Neo modules stay current.
                 When enabled, a systemd timer runs scheduled upgrades (with optional nix garbage collection).

@@ -97,7 +97,7 @@
             // lib.neo.mkSystemdUnits tailscaleUnits
             // lib.neo.mkServiceMeta {
               category = "Network";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/tailscale.svg";
+              icon = ./icon.svg;
               description = ''
                 Tailscale is the easiest, most secure way to use WireGuard for creating a mesh VPN (tailnet) that connects devices and services across networks with zero-config NAT traversal and identity-based access controls.
                 In this homeserver, it provides simple remote access to the server and resources from anywhere, with support for exit nodes, advertised routes, MagicDNS, and SSH gated by tailnet policy — all without manual port forwarding or complex firewall rules.

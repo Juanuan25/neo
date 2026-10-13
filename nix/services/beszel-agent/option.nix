@@ -37,7 +37,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/beszel-agent"
             // lib.neo.mkServiceMeta {
               category = "Monitoring";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/beszel.svg";
+              icon = ./icon.svg;
               description = ''
                 Beszel agent is the lightweight companion to the Beszel monitoring hub.
                 It runs on target hosts and reports detailed system and container metrics (CPU, RAM, disk, network, temps, SMART, GPUs, Docker/Podman) back to the hub over secure websocket.

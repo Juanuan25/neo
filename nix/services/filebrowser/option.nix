@@ -34,7 +34,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/filebrowser"
             // lib.neo.mkServiceMeta {
               category = "Files";
-              icon = "https://raw.githubusercontent.com/filebrowser/filebrowser/refs/heads/master/docs/static/favicon.png";
+              icon = ./icon.png;
               description = ''
                 Filebrowser provides a file management interface.
                 It lets you upload, delete, preview, rename and edit your files in the browser.

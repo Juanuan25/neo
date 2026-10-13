@@ -23,7 +23,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/isponsorblocktv"
             // lib.neo.mkServiceMeta {
               category = "Media";
-              icon = "https://raw.githubusercontent.com/ajayyy/SponsorBlock/master/public/icons/LogoSponsorBlocker256px.png";
+              icon = ./icon.png;
               description = ''
                 iSponsorBlockTV is a self-hosted SponsorBlock client for YouTube TV apps on smart TVs, streaming devices, and game consoles.
                 It pairs with devices over YouTube's Lounge API (the same used for casting and mobile remote control) to monitor playback and automatically issue skip and mute commands for sponsor segments, intros, outros, and interaction reminders using the crowdsourced SponsorBlock database.

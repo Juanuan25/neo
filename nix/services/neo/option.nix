@@ -66,7 +66,7 @@
             ]
             // lib.neo.mkServiceMeta {
               category = "Core";
-              icon = "/static/neo-icon.png";
+              icon = ../../../cli/static/neo-icon.png;
               description = ''
                 The neo web UI gives you a live, in-browser editor for all your homeserver services.
                 Changes are written to settings.toml and can be reviewed/applied with a single click.

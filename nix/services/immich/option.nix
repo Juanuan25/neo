@@ -31,7 +31,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/immich"
             // lib.neo.mkServiceMeta {
               category = "Media";
-              icon = "https://raw.githubusercontent.com/immich-app/immich/main/design/immich-logo.svg";
+              icon = ./icon.svg;
               description = ''
                 Immich is a high-performance self-hosted photo and video management solution and a powerful open-source alternative to Google Photos.
                 It enables you to back up, organize, search, and manage your photos and videos on your own server with ease, featuring automatic mobile backups via official apps for Android and iOS.

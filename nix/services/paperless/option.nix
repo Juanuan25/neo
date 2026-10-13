@@ -61,7 +61,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/paperless"
             // lib.neo.mkServiceMeta {
               category = "Files";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/paperless-ngx.svg";
+              icon = ./icon.svg;
               description = ''
                 Paperless-ngx is a community-supported document management system that transforms your physical documents into a searchable online archive.
                 It performs OCR on scans and PDFs to enable powerful full-text search, tagging, and organization by correspondents and document types.

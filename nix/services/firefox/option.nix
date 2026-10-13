@@ -46,7 +46,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/firefox"
             // lib.neo.mkServiceMeta {
               category = "Utilities";
-              icon = "https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/firefox-logo.png";
+              icon = ./icon.png;
               description = ''
                 Firefox (linuxserver/firefox) streams a full Firefox browser session to any modern browser via Selkies.
                 Profile and downloads persist under appdata (/config). Neo remaps ports off the image defaults so the

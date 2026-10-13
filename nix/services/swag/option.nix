@@ -113,7 +113,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/swag"
             // lib.neo.mkServiceMeta {
               category = "Core";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/nginx.svg";
+              icon = ./icon.svg;
               description = ''
                 SWAG (Secure Web Application Gateway) is the foundational reverse proxy and SSL termination layer for the Neo homeserver.
                 Built on Nginx with integrated Certbot, it automatically provisions and renews trusted SSL certificates from Let's Encrypt or ZeroSSL for the primary domain, all configured subdomains, and domains listed in proxyPass.

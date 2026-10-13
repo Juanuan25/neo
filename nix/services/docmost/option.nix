@@ -52,7 +52,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/docmost"
             // lib.neo.mkServiceMeta {
               category = "Files";
-              icon = "https://raw.githubusercontent.com/docmost/docmost/refs/heads/main/apps/client/public/icons/app-icon-192x192.png";
+              icon = ./icon.png;
               description = ''
                 Docmost is an open-source collaborative wiki and knowledge base (Notion-style) with real-time page editing over WebSockets.
                 Neo runs the official Docker stack: the Docmost app, Postgres for workspace data, and Redis for queues/sessions, all on the internal network behind SWAG and tinyauth.

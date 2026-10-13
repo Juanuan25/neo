@@ -92,7 +92,7 @@
             // lib.neo.mkServiceMeta {
               category = "Utilities";
               iframeCompatible = false;
-              icon = "https://api.iconify.design/mdi/calendar-sync-outline.svg";
+              icon = ./icon.svg;
               description = ''
                 ical-sync subscribes to public iCal feeds and mirrors them into a CalDAV calendar with vdirsyncer.
                 Point it at a CalDAV server (RustiCal on this host by default), a principal, and an app token copied from the RustiCal UI — not the tinyauth password and not ssoPassword.

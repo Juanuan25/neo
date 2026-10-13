@@ -99,7 +99,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/karakeep"
             // lib.neo.mkServiceMeta {
               category = "Utilities";
-              icon = "https://docs.karakeep.app/img/logo-full.svg";
+              icon = ./icon.svg;
               description = ''
                 Karakeep is a self-hosted bookmark manager (formerly Hoarder) for hoarding links, notes, and images with full-text search and AI-assisted tagging.
                 It crawls pages with a headless browser for screenshots and readable archives, indexes content with Meilisearch, and supports browser extensions and mobile apps for quick capture.

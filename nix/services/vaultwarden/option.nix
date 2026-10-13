@@ -41,7 +41,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/vaultwarden"
             // lib.neo.mkServiceMeta {
               category = "Security";
-              icon = "https://raw.githubusercontent.com/dani-garcia/vaultwarden/main/resources/vaultwarden-icon.svg";
+              icon = ./icon.svg;
               description = ''
                 Vaultwarden is a lightweight alternative server implementation of the Bitwarden password manager API, written entirely in Rust for efficiency and security.
                 It delivers full compatibility with official Bitwarden clients, browser extensions, desktop apps, and mobile apps, enabling complete self-hosted password management including logins, secure notes, cards, identities, attachments, and Send for temporary shares.

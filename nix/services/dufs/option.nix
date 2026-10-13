@@ -61,7 +61,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/dufs"
             // lib.neo.mkServiceMeta {
               category = "Files";
-              icon = "https://raw.githubusercontent.com/sigoden/dufs/main/assets/favicon.ico";
+              icon = ./icon.png;
               description = ''
                 Dufs is a distinctive utility file server written in Rust: static serving, drag-and-drop uploads, search, resumable transfers, and first-class WebDAV.
                 Neo mounts media and documents under /data by default and adds a writable share at /data; extra host paths go in additionalMountPoints.

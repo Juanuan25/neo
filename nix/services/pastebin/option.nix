@@ -30,7 +30,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/pastebin"
             // lib.neo.mkServiceMeta {
               category = "Utilities";
-              icon = "https://raw.githubusercontent.com/wantguns/bin/master/static/media/android-chrome-512x512.png";
+              icon = ./icon.png;
               description = ''
                 Bin (wantguns/bin) is a highly opinionated, minimal self-hosted pastebin that accepts both textual pastes and binary files such as images and PDFs.
                 It requires no SQL database or external services; all data is stored as flat files, and the server is distributed as a tiny statically linked binary (Docker image is based on scratch) for the simplest possible deployment.

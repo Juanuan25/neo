@@ -72,7 +72,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/stirling-pdf"
             // lib.neo.mkServiceMeta {
               category = "Files";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/stirling-pdf.svg";
+              icon = ./icon.svg;
               description = ''
                 Stirling PDF is a locally hosted web application for performing PDF operations with no tracking or data sharing.
                 Merge, split, convert, OCR, compress, sign, rotate, watermark, and dozens more tools run entirely on your server.

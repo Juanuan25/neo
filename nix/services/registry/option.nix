@@ -53,7 +53,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/registry"
             // lib.neo.mkServiceMeta {
               category = "Files";
-              icon = "https://devicons.railway.com/i/docker.svg";
+              icon = ./icon.svg;
               description = ''
                 A private Docker/OCI image registry based on CNCF Distribution, the reference implementation behind Docker Hub.
                 Push your own images with docker push <subdomain>.<domain>/name:tag and pull them from any machine or from neo services.

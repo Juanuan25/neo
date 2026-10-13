@@ -32,7 +32,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/searxng"
             // lib.neo.mkServiceMeta {
               category = "Utilities";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/searxng.svg";
+              icon = ./icon.svg;
               description = ''
                 SearXNG is a free internet metasearch engine which aggregates results from various search services and databases. Users are neither tracked nor profiled.
                 It pulls search results from up to 244 sources while protecting your privacy and can be used over Tor for additional anonymity.

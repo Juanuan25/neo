@@ -59,7 +59,7 @@
             // lib.neo.mkAppdata "${config.neo.core.volumes.appdata}/dawarich"
             // lib.neo.mkServiceMeta {
               category = "Utilities";
-              icon = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/dawarich.svg";
+              icon = ./icon.svg;
               description = ''
                 Dawarich is a self-hosted location history (Google Timeline alternative): a map of where you have been, trips, visits, and stats.
                 Neo runs the upstream Docker stack: the Rails app, a Sidekiq worker, PostGIS for the points, and Redis for jobs and live updates, on the internal network behind SWAG and tinyauth.
