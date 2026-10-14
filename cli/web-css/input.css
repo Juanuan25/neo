@@ -1246,7 +1246,7 @@ a.neo-sem-name:focus-visible {
   color: var(--color-base-content);
 }
 
-/* Output panel: same terminal look as the unit logs dialog. */
+/* Shared terminal output (activation, update, and unit logs). */
 .neo-op-output {
   border-radius: var(--radius-box);
   overflow: hidden;
@@ -1322,27 +1322,31 @@ a.neo-sem-name:focus-visible {
   }
 }
 
-#changes-modal #changes-body {
+#changes-modal #changes-body,
+#logs-dialog #logs-body {
   min-height: 0;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
 
-/* Op monitor: fill the sheet; log is the only scroll container. */
+/* Op monitor and unit logs: fill the sheet; the log is the only scroll container. */
 #changes-modal .modal-box:has(.neo-op),
-#changes-modal .modal-box:has([data-op-monitor]) {
+#changes-modal .modal-box:has([data-op-monitor]),
+#logs-dialog .modal-box {
   /* Fixed height so flex children can shrink and the footer stays on-screen. */
   height: min(92dvh, calc(100dvh - env(safe-area-inset-top, 0px) - 0.5rem));
 }
 @media (min-width: 640px) {
   #changes-modal .modal-box:has(.neo-op),
-  #changes-modal .modal-box:has([data-op-monitor]) {
+  #changes-modal .modal-box:has([data-op-monitor]),
+  #logs-dialog .modal-box {
     height: min(85dvh, calc(100dvh - 2rem));
   }
 }
 
 #changes-modal #changes-body:has(.neo-op),
-#changes-modal #changes-body:has([data-op-monitor]) {
+#changes-modal #changes-body:has([data-op-monitor]),
+#logs-dialog #logs-body {
   display: flex;
   flex-direction: column;
   overflow: hidden; /* avoid nested body + log scroll */
@@ -1351,7 +1355,8 @@ a.neo-sem-name:focus-visible {
 }
 
 #changes-modal .neo-op,
-#changes-modal [data-op-monitor] {
+#changes-modal [data-op-monitor],
+#logs-dialog .neo-op {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -1363,17 +1368,20 @@ a.neo-sem-name:focus-visible {
   flex-shrink: 0;
 }
 
-#changes-modal .neo-op-output {
+#changes-modal .neo-op-output,
+#logs-dialog .neo-op-output {
   flex: 1 1 auto;
   min-height: 0;
 }
 
-#changes-modal .neo-op-log-wrap {
+#changes-modal .neo-op-log-wrap,
+#logs-dialog .neo-op-log-wrap {
   flex: 1 1 auto;
   min-height: 8rem;
 }
 
-#changes-modal .neo-op-log {
+#changes-modal .neo-op-log,
+#logs-dialog .neo-op-log {
   /* Stretch into the flex slot instead of a fixed 50vh that pushes the footer off. */
   height: 100%;
   min-height: 8rem;

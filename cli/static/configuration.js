@@ -743,59 +743,73 @@ window.servicesGrid = function servicesGrid() {
     changesModal.addEventListener('close', clearChangesMonitor);
   }
 
-  // Live logs dialog helpers (EventSource for SSE from /sse/logs/<unit>)
+  // Live unit logs (SSE from /sse/logs/<unit>). The output panel is the same
+  // logPane activation and update use, including Latest when follow is paused.
   window.currentLogSource = null;
+  var unitLogsPane = null;
+
+  function setLogConn(state) {
+    var el = document.getElementById('log-conn');
+    if (!el) return;
+    var labels = { connecting: 'Connecting…', live: 'Live', reconnecting: 'Reconnecting…' };
+    el.setAttribute('data-conn', state);
+    el.textContent = labels[state] || '';
+  }
+
+  function ensureUnitLogsPane() {
+    if (unitLogsPane) return unitLogsPane;
+    var host = document.getElementById('logs-output');
+    var api = window.NeoOpMonitor && window.NeoOpMonitor.logPane;
+    if (!host || !api) return null;
+    host.innerHTML = api.markup({ clear: true });
+    unitLogsPane = api.bind(host.querySelector('.neo-op-output'), window);
+    return unitLogsPane;
+  }
+
   window.openUnitLogs = function (unit) {
     var dlg = document.getElementById('logs-dialog');
     var nameEl = document.getElementById('log-unit');
-    var pre = document.getElementById('log-pre');
-    if (!dlg || !nameEl || !pre) return;
+    var pane = ensureUnitLogsPane();
+    if (!dlg || !nameEl || !pane) return;
     nameEl.textContent = unit;
-    pre.textContent = 'connecting live logs...\n';
+    pane.clear();
+    setLogConn('connecting');
+    stopUnitLogs();
     dlg.showModal();
-    if (window.currentLogSource) {
-      try {
-        window.currentLogSource.close();
-      } catch (e) {}
-    }
+    pane.append('connecting live logs...\n');
     var es = new EventSource('/sse/logs/' + encodeURIComponent(unit));
     window.currentLogSource = es;
+    es.onopen = function () { setLogConn('live'); };
     es.onmessage = function (e) {
-      pre.textContent += e.data + '\n';
-      // auto-scroll if near bottom
-      if (pre.scrollHeight - pre.scrollTop <= pre.clientHeight + 40) {
-        pre.scrollTop = pre.scrollHeight;
-      }
+      pane.append(e.data + '\n');
     };
     es.onerror = function () {
-      pre.textContent += '[live connection hiccup; may resume]\n';
+      setLogConn('reconnecting');
+      pane.append('[live connection hiccup; may resume]\n');
     };
     dlg.dataset.unit = unit;
   };
+  function stopUnitLogs() {
+    if (!window.currentLogSource) return;
+    var prev = window.currentLogSource;
+    window.currentLogSource = null;
+    prev.onopen = null;
+    prev.onmessage = null;
+    prev.onerror = null;
+    try { prev.close(); } catch (e) {}
+  }
   window.closeUnitLogs = function () {
     var dlg = document.getElementById('logs-dialog');
-    if (window.currentLogSource) {
-      try {
-        window.currentLogSource.close();
-        window.currentLogSource = null;
-      } catch (e) {}
-    }
+    stopUnitLogs();
     if (dlg) dlg.close();
   };
   window.clearUnitLogs = function () {
-    var pre = document.getElementById('log-pre');
-    if (pre) pre.textContent = '';
+    var pane = ensureUnitLogsPane();
+    if (pane) pane.clear();
   };
   var ld = document.getElementById('logs-dialog');
   if (ld) {
-    ld.addEventListener('close', function () {
-      if (window.currentLogSource) {
-        try {
-          window.currentLogSource.close();
-          window.currentLogSource = null;
-        } catch (e) {}
-      }
-    });
+    ld.addEventListener('close', stopUnitLogs);
   }
 
   // Option helper form dialog (password/hash generators etc.)

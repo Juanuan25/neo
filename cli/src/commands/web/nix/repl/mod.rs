@@ -144,9 +144,7 @@ impl NixEvaluator {
             args.push("neo".into());
             args.push(neo_url);
             args.push(cfg_url);
-            println!(
-                "web: nix repl will load host flake with --override-input neo → {neo_src}"
-            );
+            println!("web: nix repl will load host flake with --override-input neo → {neo_src}");
         }
         cmd.args(&args);
         cmd.stdin(Stdio::piped());

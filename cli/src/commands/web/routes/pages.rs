@@ -67,7 +67,11 @@ async fn configuration_shell(
     Template::render("configuration", ctx)
 }
 
-async fn pane_context(config: &State<Arc<AppConfig>>, is_core: bool, name: &str) -> OptionPaneContext {
+async fn pane_context(
+    config: &State<Arc<AppConfig>>,
+    is_core: bool,
+    name: &str,
+) -> OptionPaneContext {
     load_pane(config, is_core, name).await
 }
 
@@ -130,7 +134,14 @@ pub async fn configuration_versioning(config: &State<Arc<AppConfig>>, htmx: Htmx
     if htmx.is_htmx() {
         branches_template()
     } else {
-        configuration_shell(config, "/configuration/versioning", "versioning", None, None).await
+        configuration_shell(
+            config,
+            "/configuration/versioning",
+            "versioning",
+            None,
+            None,
+        )
+        .await
     }
 }
 

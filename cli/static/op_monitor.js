@@ -1,5 +1,8 @@
 // Live monitor for background ops (activation / update / store repair / generation switch).
 //
+// logPane is the shared output panel. Unit logs bind the same pane, so follow,
+// Latest, copy, and trimming stay identical.
+//
 // The server renders only a mount point:
 //   <div data-op-monitor="<id>" data-op-title="Activation" data-op-subtitle="…" [data-op-note="…"]>
 // wherever it lands (#changes-body via htmx, versioning openModal, …). This script builds
@@ -94,6 +97,126 @@
   var ICON_X = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5" aria-hidden="true"><path d="M6.3 5.2a.75.75 0 10-1.1 1.1L8.9 10l-3.7 3.7a.75.75 0 101.1 1.1L10 11.1l3.7 3.7a.75.75 0 101.1-1.1L11.1 10l3.7-3.7a.75.75 0 00-1.1-1.1L10 8.9 6.3 5.2z"/></svg>';
   var ICON_DOWN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5" aria-hidden="true"><path fill-rule="evenodd" d="M10 3a.75.75 0 01.75.75v10.5l3.97-3.97a.75.75 0 111.06 1.06l-5.25 5.25a.75.75 0 01-1.06 0l-5.25-5.25a.75.75 0 111.06-1.06l3.97 3.97V3.75A.75.75 0 0110 3z" clip-rule="evenodd"/></svg>';
 
+  /** Slack before the tail counts as "not following". Shared with unit logs. */
+  var NEAR_BOTTOM_PX = 24;
+
+  /**
+   * Terminal output panel used by activation / update and by unit logs.
+   * Follows the tail until the reader scrolls away, then shows Latest.
+   */
+  var logPane = {
+    nearBottom: function (el) {
+      return el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    },
+
+    /** `opts.clear` adds the Clear action unit logs use. */
+    markup: function (opts) {
+      opts = opts || {};
+      var clearBtn = opts.clear
+        ? '<button type="button" class="btn btn-ghost btn-xs" data-act="clear" title="Clear the output">Clear</button>'
+        : '';
+      return (
+        '<div class="neo-op-output">' +
+        '  <div class="neo-op-output-bar">' +
+        '    <span class="font-medium">Output</span>' +
+        '    <span class="tabular-nums opacity-60" data-el="lines"></span>' +
+        '    <span class="opacity-60 hidden" data-el="trimmed">· earlier output hidden</span>' +
+        '    <span class="flex-1"></span>' +
+        clearBtn +
+        '    <button type="button" class="btn btn-ghost btn-xs" data-act="copy" title="Copy the output">Copy</button>' +
+        '  </div>' +
+        '  <div class="neo-op-log-wrap">' +
+        '    <pre class="neo-op-log" data-el="log" tabindex="0" aria-live="off"></pre>' +
+        '    <button type="button" class="neo-op-jump btn btn-sm btn-neutral shadow-lg gap-1" data-act="jump" hidden>' + ICON_DOWN + 'Latest</button>' +
+        '  </div>' +
+        '</div>'
+      );
+    },
+
+    bind: function (root, win, opts) {
+      opts = opts || {};
+      var doc = win.document;
+      var maxChars = opts.maxChars || MAX_CHARS;
+      var log = root.querySelector('[data-el="log"]');
+      var linesEl = root.querySelector('[data-el="lines"]');
+      var trimmedEl = root.querySelector('[data-el="trimmed"]');
+      var jumpBtn = root.querySelector('[data-act="jump"]');
+      var copyBtn = root.querySelector('[data-act="copy"]');
+      var clearBtn = root.querySelector('[data-act="clear"]');
+      var chars = 0;
+      var lines = 0;
+      var follow = true;
+
+      function selectionInLog() {
+        try {
+          var sel = win.getSelection && win.getSelection();
+          return !!(sel && !sel.isCollapsed && sel.anchorNode && log.contains(sel.anchorNode));
+        } catch (e) {
+          return false;
+        }
+      }
+
+      log.addEventListener('scroll', function () {
+        follow = logPane.nearBottom(log);
+        jumpBtn.hidden = follow;
+      }, { passive: true });
+      jumpBtn.addEventListener('click', function () {
+        follow = true;
+        jumpBtn.hidden = true;
+        log.scrollTop = log.scrollHeight;
+      });
+      if (copyBtn) {
+        copyBtn.addEventListener('click', function (e) {
+          var btn = e.currentTarget;
+          var text = log.textContent || '';
+          var done = function () {
+            btn.textContent = 'Copied';
+            if (win.setTimeout) win.setTimeout(function () { btn.textContent = 'Copy'; }, 1400);
+          };
+          try {
+            win.navigator.clipboard.writeText(text).then(done, function () {});
+          } catch (err) {}
+        });
+      }
+
+      function discard() {
+        log.textContent = '';
+        chars = 0;
+        lines = 0;
+        linesEl.textContent = '';
+      }
+
+      function clear() {
+        discard();
+        trimmedEl.classList.add('hidden');
+        follow = true;
+        jumpBtn.hidden = true;
+      }
+
+      if (clearBtn) clearBtn.addEventListener('click', clear);
+
+      return {
+        log: log,
+        append: function (text, truncated) {
+          if (!text) return;
+          if (truncated) trimmedEl.classList.remove('hidden');
+          log.appendChild(doc.createTextNode(text));
+          chars += text.length;
+          lines += (String(text).match(/\n/g) || []).length;
+          while (chars > maxChars && log.firstChild && log.firstChild !== log.lastChild) {
+            chars -= log.firstChild.textContent.length;
+            log.removeChild(log.firstChild);
+            trimmedEl.classList.remove('hidden');
+          }
+          linesEl.textContent = lines + (lines === 1 ? ' line' : ' lines');
+          if (follow && !selectionInLog()) log.scrollTop = log.scrollHeight;
+        },
+        discard: discard,
+        clear: clear,
+      };
+    },
+  };
+
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;')
@@ -109,16 +232,12 @@
   function Monitor(el, win) {
     this.el = el;
     this.win = win;
-    this.doc = win.document;
     this.id = el.getAttribute('data-op-monitor');
     this.title = el.getAttribute('data-op-title') || 'Operation';
     this.subtitle = el.getAttribute('data-op-subtitle') || '';
     this.note = el.getAttribute('data-op-note') || '';
     this.state = { status: '', steps: [] };
     this.offset = 0;
-    this.chars = 0;
-    this.lines = 0;
-    this.follow = true;
     this.ended = false;
     this.disposed = false;
     this.attempt = 0;
@@ -146,19 +265,7 @@
       '</div>' +
       '<ol class="neo-op-steps mb-3" data-el="steps" hidden></ol>' +
       '</div>' +
-      '<div class="neo-op-output">' +
-      '  <div class="neo-op-output-bar">' +
-      '    <span class="font-medium">Output</span>' +
-      '    <span class="tabular-nums opacity-60" data-el="lines"></span>' +
-      '    <span class="opacity-60 hidden" data-el="trimmed">· earlier output hidden</span>' +
-      '    <span class="flex-1"></span>' +
-      '    <button type="button" class="btn btn-ghost btn-xs" data-act="copy" title="Copy the output">Copy</button>' +
-      '  </div>' +
-      '  <div class="neo-op-log-wrap">' +
-      '    <pre class="neo-op-log" data-el="log" tabindex="0" aria-live="off"></pre>' +
-      '    <button type="button" class="neo-op-jump btn btn-sm btn-neutral shadow-lg gap-1" data-act="jump" hidden>' + ICON_DOWN + 'Latest</button>' +
-      '  </div>' +
-      '</div>' +
+      logPane.markup() +
       '<div class="neo-op-outcome hidden" data-el="outcome"></div>';
 
     var q = function (name) {
@@ -168,35 +275,8 @@
     this.phaseEl = q('phase');
     this.connEl = q('conn');
     this.stepsEl = q('steps');
-    this.log = q('log');
-    this.linesEl = q('lines');
-    this.trimmedEl = q('trimmed');
     this.outcomeEl = q('outcome');
-    this.jumpBtn = el.querySelector('[data-act="jump"]');
-
-    var self = this;
-    this.log.addEventListener('scroll', function () {
-      var l = self.log;
-      var atBottom = l.scrollHeight - l.scrollTop - l.clientHeight < 24;
-      self.follow = atBottom;
-      self.jumpBtn.hidden = atBottom;
-    }, { passive: true });
-    this.jumpBtn.addEventListener('click', function () {
-      self.follow = true;
-      self.jumpBtn.hidden = true;
-      self.log.scrollTop = self.log.scrollHeight;
-    });
-    el.querySelector('[data-act="copy"]').addEventListener('click', function (e) {
-      var btn = e.currentTarget;
-      var text = self.log.textContent || '';
-      var done = function () {
-        btn.textContent = 'Copied';
-        self.win.setTimeout(function () { btn.textContent = 'Copy'; }, 1400);
-      };
-      try {
-        self.win.navigator.clipboard.writeText(text).then(done, function () {});
-      } catch (err) {}
-    });
+    this.pane = logPane.bind(el.querySelector('.neo-op-output'), this.win);
     this.renderState();
     this.setConn('connecting');
   };
@@ -284,29 +364,9 @@
     });
   };
 
-  Monitor.prototype.selectionInLog = function () {
-    try {
-      var sel = this.win.getSelection();
-      return !!(sel && !sel.isCollapsed && sel.anchorNode && this.log.contains(sel.anchorNode));
-    } catch (e) {
-      return false;
-    }
-  };
-
   Monitor.prototype.append = function (text, truncated) {
-    if (!text) return;
-    if (truncated) this.trimmedEl.classList.remove('hidden');
     // Text nodes are appended, never replaced: selections and scroll stay put.
-    this.log.appendChild(this.doc.createTextNode(text));
-    this.chars += text.length;
-    this.lines += (text.match(/\n/g) || []).length;
-    while (this.chars > MAX_CHARS && this.log.firstChild && this.log.firstChild !== this.log.lastChild) {
-      this.chars -= this.log.firstChild.textContent.length;
-      this.log.removeChild(this.log.firstChild);
-      this.trimmedEl.classList.remove('hidden');
-    }
-    this.linesEl.textContent = this.lines + (this.lines === 1 ? ' line' : ' lines');
-    if (this.follow && !this.selectionInLog()) this.log.scrollTop = this.log.scrollHeight;
+    this.pane.append(text, truncated);
   };
 
   Monitor.prototype.onMessage = function (msg) {
@@ -320,17 +380,13 @@
       case 'log':
         if (typeof msg.from === 'number' && msg.from !== this.offset && this.offset !== 0 && !msg.truncated) {
           // Out of sync (should not happen): start clean from this chunk.
-          this.log.textContent = '';
-          this.chars = 0;
-          this.lines = 0;
+          this.pane.discard();
         }
         this.append(msg.data, msg.truncated);
         if (typeof msg.to === 'number') this.offset = msg.to;
         break;
       case 'reset':
-        this.log.textContent = '';
-        this.chars = 0;
-        this.lines = 0;
+        this.pane.discard();
         this.offset = 0;
         break;
       case 'end':
@@ -489,6 +545,7 @@
     stepStates: stepStates,
     outcome: outcome,
     humanPhase: humanPhase,
+    logPane: logPane,
     autostart: autostart,
     resume: resume,
     Monitor: Monitor,
