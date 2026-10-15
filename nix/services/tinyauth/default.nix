@@ -39,6 +39,28 @@
           ) (attrNames activeAccess)
         );
 
+      entra = cfg.entra;
+      entraBridgePort = 8080;
+
+      # Entra groups that grant app `appName` (deny-by-default for Microsoft users):
+      # a listed group grants every app unless groupAccess narrows it.
+      groupsGrantingApp = appName:
+        filter (
+          group: let
+            entry = cfg.groupAccess.${group} or {};
+            allow = entry.allow or [];
+            block = entry.block or [];
+          in
+            if allow != []
+            then elem appName allow
+            else !(elem appName block)
+        )
+        cfg.entraGroups;
+
+      # Tinyauth treats an empty OAUTH_GROUPS as "no restriction", so an app no
+      # group grants gets a group name nobody is in.
+      noGroup = "neo-no-entra-group";
+
       # Generate TINYAUTH_APPS_<NAME>_* env vars for services with publicPaths / domains / user ACLs.
       # Tinyauth treats `_` as nested config keys (e.g. APPS_FOO_BAR → apps.foo.bar), so
       # hyphenated service names must not become FOO_BAR — strip hyphens instead (stirling-pdf → STIRLINGPDF).
@@ -60,9 +82,21 @@
                 // optionalAttrs (blocked != []) {
                   "TINYAUTH_APPS_${appName}_USERS_BLOCK" = concatStringsSep "," blocked;
                 }
+                // optionalAttrs entra.enabled {
+                  "TINYAUTH_APPS_${appName}_OAUTH_GROUPS" = let
+                    granted = groupsGrantingApp name;
+                  in
+                    if granted == []
+                    then noGroup
+                    else concatStringsSep "," granted;
+                }
             )
         ) {}
         authServices;
+
+      # groupAccess entries for listed groups (orphan keys are ignored).
+      activeGroupAccess =
+        filterAttrs (group: _: elem group cfg.entraGroups) cfg.groupAccess;
 
       # Flat list of service names referenced in allow/block (for assertions).
       referencedServiceNames = lib.unique (
@@ -70,16 +104,40 @@
           mapAttrsToList (
             _: entry: (entry.allow or []) ++ (entry.block or [])
           )
-          activeAccess
+          (activeAccess // activeGroupAccess)
         )
       );
 
-      mixedAllowBlockUsers = filter (
-        username: let
-          e = activeAccess.${username};
-        in
-          (e.allow or []) != [] && (e.block or []) != []
-      ) (attrNames activeAccess);
+      mixedAllowBlock = entries:
+        filter (
+          key: let
+            e = entries.${key};
+          in
+            (e.allow or []) != [] && (e.block or []) != []
+        ) (attrNames entries);
+      mixedAllowBlockUsers = mixedAllowBlock activeAccess;
+      mixedAllowBlockGroups = mixedAllowBlock activeGroupAccess;
+
+      entraEnv = let
+        provider = "TINYAUTH_OAUTH_PROVIDERS_ENTRA";
+        login = "https://login.microsoftonline.com/${entra.tenantId}/oauth2/v2.0";
+      in
+        {
+          "${provider}_NAME" = entra.buttonName;
+          "${provider}_CLIENTID" = entra.clientId;
+          "${provider}_CLIENTSECRET" = entra.clientSecret;
+          "${provider}_AUTHURL" = "${login}/authorize";
+          "${provider}_TOKENURL" = "${login}/token";
+          # Graph user + groups as flat claims (entra_userinfo.py).
+          "${provider}_USERINFOURL" = "http://tinyauth-entra:${toString entraBridgePort}/userinfo";
+          "${provider}_SCOPES" = concatStringsSep "," (
+            ["openid" "profile" "email" "User.Read"]
+            ++ optional entra.groupNames "GroupMember.Read.All"
+          );
+        }
+        // optionalAttrs entra.autoRedirect {
+          TINYAUTH_OAUTH_AUTOREDIRECT = "entra";
+        };
 
       unknownServiceRefs =
         filter (n: !(elem n knownServiceNames)) referencedServiceNames;
@@ -87,8 +145,19 @@
       config = mkIf cfg.enabled {
         assertions = [
           {
-            assertion = cfg.users != [];
-            message = "neo.services.tinyauth: At least one user must be configured in 'users'.";
+            assertion = cfg.users != [] || entra.enabled;
+            message = "neo.services.tinyauth: Configure at least one user in 'users', or enable Entra sign-in.";
+          }
+          {
+            assertion = !entra.enabled || all (v: v != "") [entra.tenantId entra.clientId entra.clientSecret];
+            message = "neo.services.tinyauth.entra: tenantId, clientId and clientSecret are required when Entra sign-in is enabled.";
+          }
+          {
+            assertion = mixedAllowBlockGroups == [];
+            message = ''
+              neo.services.tinyauth.groupAccess: groups must not set both non-empty allow and block.
+              Conflicting groups: ${concatStringsSep ", " mixedAllowBlockGroups}
+            '';
           }
           {
             assertion = mixedAllowBlockUsers == [];
@@ -126,10 +195,20 @@
             // optionalAttrs cfg.backgroundImage {
               TINYAUTH_UI_BACKGROUNDIMAGE = "https://lipsum.app/random/1920x1080";
             }
+            // optionalAttrs entra.enabled entraEnv
             // appAclEnvVars;
           volumes = [
             "${config.neo.core.volumes.appdata}/tinyauth:/data"
           ];
+          networks = ["internal"];
+        };
+
+        virtualisation.oci-containers.containers.tinyauth-entra = mkIf entra.enabled {
+          image = cfg.containers.tinyauth-entra;
+          autoStart = true;
+          cmd = ["python3" "/app/entra_userinfo.py"];
+          environment.PORT = toString entraBridgePort;
+          volumes = ["${./entra_userinfo.py}:/app/entra_userinfo.py:ro"];
           networks = ["internal"];
         };
       };

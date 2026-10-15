@@ -30,9 +30,20 @@
           - both non-empty → Nix assertion failure
         - Compiled to Tinyauth `TINYAUTH_APPS_*_USERS_BLOCK` with allow-by-default policy
         - Orphan access keys for deleted users are ignored at eval; UI save drops them
+        - Entra ID sign-in (`entra.*`): tinyauth OAuth provider `entra`, redirect URI
+          `https://<tinyauth subdomain>.<domain>/api/oauth/callback/entra`. Local users keep working alongside.
+          - Userinfo goes through the `tinyauth-entra` bridge container (entra_userinfo.py): it calls
+            Microsoft Graph `/me` + `/me/transitiveMemberOf` and returns email (mail, else UPN) and groups
+            (display names and object IDs). Entra's own userinfo has no groups.
+          - `entraGroups`: groups whose members may use apps; Microsoft users in none of them are denied everywhere
+          - `groupAccess.<group>.allow` / `.block`: narrow what a group grants (same rules as per-user access)
+          - Compiled to `TINYAUTH_APPS_*_OAUTH_GROUPS` (union of granting groups; `neo-no-entra-group` when none)
+          - Groups are read at login and kept in the session; membership changes apply on next login
 
         ## Credentials
         - Settings: `services.tinyauth.users` (bcrypt hashes — not plaintext passwords)
+        - Entra: `services.tinyauth.entra.tenantId`, `.clientId`, `.clientSecret` (app registration;
+          Graph delegated permissions openid, profile, email, User.Read, GroupMember.Read.All with admin consent)
         - Neo UI "Add user" helper generates bcrypt entries
         - To reset access: update users in settings + activate
 
@@ -47,6 +58,8 @@
         - Tinyauth's own UI is not behind itself (`auth.available = false`)
         - Do not set both allow and block for the same user
         - Mistyped access username (not in users) is ignored → user stays unrestricted
+        - Entra login error page: `just logs docker-tinyauth-entra` (Graph 403 = missing GroupMember.Read.All consent;
+          set `entra.groupNames = false` to match by object ID with User.Read only)
 
         ## Verification
         - Login page works; protected app redirects to tinyauth; session persists
