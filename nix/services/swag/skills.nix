@@ -24,7 +24,7 @@
           - **443** plain TLS — LAN / direct
           - **8443** TLS + PROXY protocol — streamproxy / rathole (host port `localHttpsProxyProtocolPort`, 9982 when streamproxy co-located)
         - Docker mods: swag-dashboard + swag-dbip
-        - Geo lists: `services.swag.geo` (empty = unrestricted)
+        - Geo lists: `services.swag.geo` (empty = unrestricted); `ipWhitelist` / `ipBlacklist` (IP/CIDR) beat country/continent rules
         - Real client IPs: only on the PROXY-protocol path; old access.log lines stay private-proxy IPs until new traffic
 
         ## Procedures

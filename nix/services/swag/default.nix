@@ -197,6 +197,10 @@
                 ${duplicateSubdomainMessage}
               '';
             }
+            {
+              assertion = intersectLists cfg.geo.ipWhitelist cfg.geo.ipBlacklist == [];
+              message = "neo.services.swag.geo: ranges listed in both ipWhitelist and ipBlacklist: ${concatStringsSep ", " (intersectLists cfg.geo.ipWhitelist cfg.geo.ipBlacklist)}";
+            }
           ];
 
           networking.firewall.extraCommands = "

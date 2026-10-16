@@ -18,6 +18,11 @@
         continentBody =
           "    default yes;\n"
           + lib.concatMapStrings (c: "    ${upper c} no;\n") geo.continentBlacklist;
+        # nginx geo is longest-prefix match: the more specific range wins on overlap.
+        ipAccessBody =
+          "    default \"\";\n"
+          + lib.concatMapStrings (r: "    ${r} allow;\n") geo.ipWhitelist
+          + lib.concatMapStrings (r: "    ${r} deny;\n") geo.ipBlacklist;
       in ''
         geoip2 /config/geoip2db/dbip-country-lite.mmdb {
             auto_reload 1w;
@@ -41,6 +46,9 @@
             192.168.0.0/16 yes;
             127.0.0.1 yes;
         }
+
+        geo $neo_ip_access {
+        ${ipAccessBody}}
       '';
 
       geoAccessConf = ''
@@ -48,6 +56,16 @@
             set $geo-whitelist yes;
             set $geo-blacklist yes;
             set $continent-blacklist yes;
+        }
+        # IP rules beat country/continent: allow bypasses them, deny beats
+        # the country whitelist and LAN.
+        if ($neo_ip_access = allow) {
+            set $geo-whitelist yes;
+            set $geo-blacklist yes;
+            set $continent-blacklist yes;
+        }
+        if ($neo_ip_access = deny) {
+            set $geo-whitelist no;
         }
         if ($uri ~ ^/_neo404/) {
             set $geo-whitelist yes;

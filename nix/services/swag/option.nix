@@ -6,7 +6,10 @@
     ...
   }:
     with lib;
-    with {inherit (lib.neo) mkOption mkEnableOption;}; {
+    with {inherit (lib.neo) mkOption mkEnableOption;}; let
+      # Single IPv4/IPv6 address or CIDR range (nginx geo syntax).
+      ipRange = types.strMatching "([0-9]{1,3}(\\.[0-9]{1,3}){3}|[0-9a-fA-F:]*:[0-9a-fA-F:.]*)(/[0-9]{1,3})?";
+    in {
       options.neo.services.swag = mkOption {
         type = types.submodule {
           options =
@@ -92,10 +95,31 @@
                       rank = 20;
                       example = ["AS" "AF"];
                     };
+                    ipWhitelist = mkOption {
+                      type = types.listOf ipRange;
+                      default = [];
+                      description = ''
+                        IP addresses or CIDR ranges (IPv4/IPv6) always allowed, even from a blocked country or continent
+                        or outside the country whitelist (e.g. a WARP / mobile egress range).
+                        IP rules take precedence over country rules.
+                      '';
+                      rank = 30;
+                      example = ["104.28.253.0/24" "203.0.113.7"];
+                    };
+                    ipBlacklist = mkOption {
+                      type = types.listOf ipRange;
+                      default = [];
+                      description = ''
+                        IP addresses or CIDR ranges (IPv4/IPv6) always blocked, even from a whitelisted country or the LAN.
+                        IP rules take precedence over country rules; when whitelist and blacklist overlap, the more specific range wins.
+                      '';
+                      rank = 40;
+                      example = ["198.51.100.0/24"];
+                    };
                   };
                 };
                 default = {};
-                description = "GeoIP allow/deny lists (DB-IP). Empty lists leave access unrestricted; LAN ranges always bypass.";
+                description = "GeoIP and IP allow/deny lists (DB-IP). Empty lists leave access unrestricted. IP rules beat country/continent rules; LAN bypasses country rules but not the IP blacklist.";
                 rank = 50;
               };
             }
@@ -118,7 +142,7 @@
                 SWAG (Secure Web Application Gateway) is the foundational reverse proxy and SSL termination layer for the Neo homeserver.
                 Built on Nginx with integrated Certbot, it automatically provisions and renews trusted SSL certificates from Let's Encrypt or ZeroSSL for the primary domain, all configured subdomains, and domains listed in proxyPass.
                 Every other service's public web interface is routed exclusively through SWAG using its extensive library of reverse proxy configurations, enabling centralized HTTPS, optional auth, fail2ban protection, and keeping backends isolated on the internal Docker network.
-                When enabled, SWAG also loads the linuxserver swag-dashboard and swag-dbip docker-mods (GoAccess analytics + DB-IP GeoIP for the geographic overview). Optional country/continent allow and deny lists live under services.swag.geo (empty = unrestricted).
+                When enabled, SWAG also loads the linuxserver swag-dashboard and swag-dbip docker-mods (GoAccess analytics + DB-IP GeoIP for the geographic overview). Optional country/continent and IP/CIDR allow and deny lists live under services.swag.geo (empty = unrestricted; IP rules take precedence over country rules).
                 As the entry point for all external traffic, SWAG must be configured with your domain and email before other proxied services can be reached securely from the internet. It uses the container image lscr.io/linuxserver/swag:latest.
               '';
               projectUrl = "https://docs.linuxserver.io/general/swag/";
