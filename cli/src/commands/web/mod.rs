@@ -14,6 +14,7 @@ mod git;
 mod helper_exec;
 mod icons;
 mod locks;
+mod navigator;
 mod nix;
 mod nix_repair;
 mod ops;

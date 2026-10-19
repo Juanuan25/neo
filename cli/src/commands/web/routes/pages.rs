@@ -6,6 +6,8 @@ use rocket::http::ContentType;
 use rocket::{get, State};
 use rocket_dyn_templates::{Metadata, Template};
 
+use crate::commands::web::icons::IconSet;
+use crate::commands::web::navigator;
 use crate::commands::web::routes::branches::branches_template;
 use crate::commands::web::schema_cache::load_pane;
 use crate::commands::web::types::{
@@ -34,9 +36,13 @@ pub fn index() -> Template {
     )
 }
 
-/// Proxied service icons for the navigator sidebar (nix-eval; loaded after the page shell).
+/// Proxied service icons for the navigator sidebar (loaded after the page shell).
+/// Reads the running generation's build-time file; nix-eval only when it is absent.
 #[get("/nav-services")]
-pub async fn nav_services(config: &State<Arc<AppConfig>>) -> Template {
+pub async fn nav_services(config: &State<Arc<AppConfig>>, icons: &State<Arc<IconSet>>) -> Template {
+    if let Some(data) = navigator::from_build_file(icons) {
+        return Template::render("nav_services", data);
+    }
     let data = {
         let mut ev = config.evaluator.lock().await;
         ev.extract_proxied_services().await

@@ -286,14 +286,7 @@ impl NixEvaluator {
                 }
             }
         };
-        let dom = ctx.domain.clone();
-        for s in &mut ctx.services {
-            s.domain = dom.clone();
-            self.icons.link(&mut s.icon);
-            if s.initials.is_empty() {
-                s.initials = s.name.chars().take(2).collect::<String>().to_uppercase();
-            }
-        }
+        crate::commands::web::navigator::finish(&mut ctx, &self.icons);
         ctx
     }
 
