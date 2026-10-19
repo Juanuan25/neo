@@ -2,8 +2,8 @@
 mod process;
 
 use process::{
-    current_config_mtime, looks_like_terminal_nix_error, tail_chars, trim_for_error,
-    write_extract_files,
+    looks_like_terminal_nix_error, tail_chars, trim_for_error, write_extract_files,
+    ConfigFingerprint,
 };
 // Stderr is collected and drives fail-fast on evaluation errors so the UI never
 // waits the full marker timeout while a hard Nix error already completed.
@@ -41,7 +41,8 @@ pub struct NixEvaluator {
     neo_flake_path: Option<String>,
     eval_dir: PathBuf,
     busy: Arc<AtomicBool>,
-    last_config_mtime: SystemTime,
+    /// Config inputs the bound flake `f` was evaluated from.
+    config_fingerprint: ConfigFingerprint,
     /// Append-only buffer of all stderr from the current repl process.
     stderr_buf: Arc<Mutex<String>>,
 }
@@ -89,12 +90,12 @@ impl NixEvaluator {
             eval_dir,
             busy: busy.clone(),
             // Set after initialize so getFlake / first force cannot look "stale".
-            last_config_mtime: SystemTime::UNIX_EPOCH,
+            config_fingerprint: ConfigFingerprint::default(),
             stderr_buf,
         };
 
         this.initialize_repl(stderr).await?;
-        this.last_config_mtime = current_config_mtime(neo_input);
+        this.config_fingerprint = ConfigFingerprint::of(neo_input);
 
         Ok(this)
     }
@@ -432,19 +433,38 @@ impl NixEvaluator {
             Ok(_) => {
                 self.busy.store(false, Ordering::Relaxed);
             }
+            Err(e) if !repl_needs_restart(e) => {
+                // An error in the evaluated config: the repl is back at its prompt
+                // and its memoized flake is still valid. Restarting would only
+                // force a full re-eval. Sync once to drain the error first.
+                println!("web: nix evaluation failed ({e:#}); keeping repl");
+                if let Err(se) = self
+                    .print_marker("NEO_RESYNC", Duration::from_secs(30))
+                    .await
+                {
+                    println!("web: repl resync after eval error failed ({se:#}); restarting");
+                    self.restart_after_failure().await;
+                } else {
+                    self.busy.store(false, Ordering::Relaxed);
+                }
+            }
             Err(e) => {
                 println!(
                     "web: nix evaluation failed ({e:#}); restarting repl so the next request is not stuck"
                 );
-                if let Err(re) = self.refresh().await {
-                    println!("web: repl refresh after eval failure also failed: {re:#}");
-                    self.busy.store(false, Ordering::Relaxed);
-                }
-                // refresh() success path clears busy in initialize_repl.
+                self.restart_after_failure().await;
             }
         }
 
         result
+    }
+
+    async fn restart_after_failure(&mut self) {
+        if let Err(re) = self.refresh().await {
+            println!("web: repl refresh after eval failure also failed: {re:#}");
+            self.busy.store(false, Ordering::Relaxed);
+        }
+        // refresh() success path clears busy in initialize_repl.
     }
 
     async fn query_json_once<T: serde::de::DeserializeOwned>(&mut self, inner: &str) -> Result<T> {
@@ -482,17 +502,15 @@ impl NixEvaluator {
     }
 
     async fn auto_refresh_if_stale(&mut self) -> Result<()> {
-        let current = current_config_mtime(&self.neo_input);
-        let stale = current > self.last_config_mtime;
-        if stale {
-            println!(
-                "web: config-folder mtime advanced — restarting nix repl and rebinding f (was {:?}, now {:?})",
-                self.last_config_mtime, current
-            );
-            // On failure leave last_config_mtime unchanged so the next request retries.
-            self.refresh().await?;
+        let current = self.config_fingerprint.current(&self.neo_input);
+        if !self.config_fingerprint.content_differs(&current) {
+            // Same contents (touch, git checkout): keep the warm repl.
+            self.config_fingerprint = current;
+            return Ok(());
         }
-        Ok(())
+        println!("web: config files changed — restarting nix repl and rebinding f");
+        // On failure leave the fingerprint unchanged so the next request retries.
+        self.refresh().await
     }
 
     pub async fn refresh(&mut self) -> Result<()> {
@@ -517,14 +535,59 @@ impl NixEvaluator {
             return Err(e);
         }
 
-        self.last_config_mtime = current_config_mtime(&self.neo_input);
+        self.config_fingerprint = ConfigFingerprint::of(&self.neo_input);
         Ok(())
     }
+}
+
+/// Whether a failed query left the repl unusable (timeout, dead process,
+/// broken store or fetch). A plain evaluation error in the config — the repl
+/// printed `error:` and returned to its prompt — keeps the repl and its
+/// memoized flake.
+fn repl_needs_restart(err: &anyhow::Error) -> bool {
+    use super::errors::{classify, NixErrorKind};
+    let msg = format!("{err:#}");
+    // Only `wait_for_marker`'s stderr fail-fast produces this prefix.
+    if !msg.starts_with("nix error:") {
+        return true;
+    }
+    !matches!(
+        classify(&msg).kind,
+        NixErrorKind::EvalAssertion
+            | NixErrorKind::InfiniteRecursion
+            | NixErrorKind::UndefinedVariable
+            | NixErrorKind::Unknown
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::process::looks_like_terminal_nix_error;
+    use super::repl_needs_restart;
+
+    #[test]
+    fn config_eval_errors_keep_the_repl() {
+        for msg in [
+            "nix error: error: attribute 'foo' missing",
+            "nix error: error: infinite recursion encountered",
+            "nix error: error: undefined variable 'x'",
+            "nix error: error: assertion '(cfg.port > 0)' failed",
+        ] {
+            assert!(!repl_needs_restart(&anyhow::anyhow!("{msg}")), "{msg}");
+        }
+    }
+
+    #[test]
+    fn broken_repl_or_store_restarts() {
+        for msg in [
+            "timeout waiting for marker __NEO_EVAL_1; output so far: ; stderr: ",
+            "nix repl stdout closed while waiting for __NEO_EVAL_1; stderr: ",
+            "nix error: error: path '/nix/store/abc-source/flake.nix' does not exist",
+            "nix error: error: unable to download 'https://example.org/x': HTTP error 503",
+        ] {
+            assert!(repl_needs_restart(&anyhow::anyhow!("{msg}")), "{msg}");
+        }
+    }
 
     #[test]
     fn detects_missing_store_path_trace() {
