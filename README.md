@@ -89,7 +89,7 @@ Enable what you want in the web UI.
 - **Files.** Filebrowser, Dufs (WebDAV), Syncthing, Nextcloud, Collabora, Paperless, Docmost, Stirling PDF, Gitea, Docker registry
 - **Photos.** Immich, Immich Drop
 - **Media.** Jellyfin, Sonarr, Radarr, the rest of the \*arr stack, from the [highsea.neo](https://github.com/madebydamo/highsea.neo) plugin
-- **Passwords.** Vaultwarden
+- **Passwords and SSO.** Vaultwarden, Authentik
 - **Calendar.** RustiCal (CalDAV, CardDAV), Calino, iCal subscriptions
 - **Utilities.** SearXNG, Karakeep, pastebin, change detection, Activepieces, Dawarich, Webtop, Firefox, iSponsorBlockTV
 - **Network.** Pi-hole, Tailscale, WireGuard
