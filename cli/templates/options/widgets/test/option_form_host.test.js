@@ -281,3 +281,24 @@ test('save() omits proxyRouteList when every route was removed', async () => {
   assert.equal(posts.length, 1);
   assert.equal('proxyPass' in posts[0].body, false);
 });
+
+test('new attrsOf submodule entries keep nullOr fields null', () => {
+  installGlobals({});
+  loadOptionForm();
+  const form = optionForm();
+  const elem = {
+    kind: 'submodule',
+    fields: [
+      { name: 'type', type: { kind: 'enum', values: ['files', 'postgres'] }, default: null },
+      { name: 'maxRows', type: { kind: 'nullOr', elem: { kind: 'int', min: 1 } }, default: null },
+      { name: 'postgres.host', type: { kind: 'nullOr', elem: { kind: 'str' } }, default: null },
+      { name: 'grants', type: { kind: 'listOf', elem: { kind: 'str' } }, default: [] },
+    ],
+  };
+  assert.deepEqual(form.defaultForType(elem), {
+    type: 'files',
+    maxRows: null,
+    'postgres.host': null,
+    grants: [],
+  });
+});

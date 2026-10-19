@@ -84,6 +84,9 @@ function optionForm() {
           (t.fields || []).forEach((f) => {
             if (f.default !== undefined && f.default !== null) {
               obj[f.name] = this.cloneValue(f.default);
+            } else if (f.type && f.type.kind === 'nullOr') {
+              // Stays null, so the save leaves it out of settings.toml.
+              obj[f.name] = null;
             } else {
               obj[f.name] = this.defaultForType(f.type);
             }
