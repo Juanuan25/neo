@@ -39,8 +39,10 @@
 #   label        — human label (default: humanized last path segment).
 #   summary      — show this option's value as a chip on the collapsed group.
 #   choiceLabels — display names for enum / ui.choices values ({ web = "Internet"; }).
-#   visibleWhen  — sibling bool option name; the field hides while it is false
-#                  (e.g. auth.publicPaths only while auth.enabled).
+#   visibleWhen  — sibling option rule: "enabled" hides the field while that bool is
+#                  false (e.g. auth.publicPaths only while auth.enabled);
+#                  "type=entra" hides it unless the sibling equals that value.
+#                  Also applies to fields of attrsOf submodule entries.
 #
 # ## keysFrom
 #

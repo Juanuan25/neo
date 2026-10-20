@@ -39,10 +39,12 @@
           ) (attrNames activeAccess)
         );
 
-      entra = cfg.entra;
+      providers = filterAttrs (_: p: p.enabled) cfg.oauth;
+      oauthEnabled = providers != {};
+      entraEnabled = any (p: p.type == "entra") (attrValues providers);
       entraBridgePort = 8080;
 
-      # Entra groups that grant app `appName` (deny-by-default for Microsoft users):
+      # OAuth groups that grant app `appName` (deny-by-default for OAuth users):
       # a listed group grants every app unless groupAccess narrows it.
       groupsGrantingApp = appName:
         filter (
@@ -55,11 +57,11 @@
             then elem appName allow
             else !(elem appName block)
         )
-        cfg.entraGroups;
+        cfg.oauthGroups;
 
       # Tinyauth treats an empty OAUTH_GROUPS as "no restriction", so an app no
       # group grants gets a group name nobody is in.
-      noGroup = "neo-no-entra-group";
+      noGroup = "neo-no-oauth-group";
 
       # Generate TINYAUTH_APPS_<NAME>_* env vars for services with publicPaths / domains / user ACLs.
       # Tinyauth treats `_` as nested config keys (e.g. APPS_FOO_BAR → apps.foo.bar), so
@@ -82,7 +84,7 @@
                 // optionalAttrs (blocked != []) {
                   "TINYAUTH_APPS_${appName}_USERS_BLOCK" = concatStringsSep "," blocked;
                 }
-                // optionalAttrs entra.enabled {
+                // optionalAttrs oauthEnabled {
                   "TINYAUTH_APPS_${appName}_OAUTH_GROUPS" = let
                     granted = groupsGrantingApp name;
                   in
@@ -96,7 +98,7 @@
 
       # groupAccess entries for listed groups (orphan keys are ignored).
       activeGroupAccess =
-        filterAttrs (group: _: elem group cfg.entraGroups) cfg.groupAccess;
+        filterAttrs (group: _: elem group cfg.oauthGroups) cfg.groupAccess;
 
       # Flat list of service names referenced in allow/block (for assertions).
       referencedServiceNames = lib.unique (
@@ -118,26 +120,63 @@
       mixedAllowBlockUsers = mixedAllowBlock activeAccess;
       mixedAllowBlockGroups = mixedAllowBlock activeGroupAccess;
 
-      entraEnv = let
-        provider = "TINYAUTH_OAUTH_PROVIDERS_ENTRA";
-        login = "https://login.microsoftonline.com/${entra.tenantId}/oauth2/v2.0";
+      # TINYAUTH_OAUTH_PROVIDERS_<ID>_* for one provider.
+      providerEnv = id: p: let
+        prefix = "TINYAUTH_OAUTH_PROVIDERS_${toUpper id}";
+        login = "https://login.microsoftonline.com/${p.tenantId}/oauth2/v2.0";
+        urls =
+          if p.type == "entra"
+          then {
+            AUTHURL = "${login}/authorize";
+            TOKENURL = "${login}/token";
+            # Graph user + groups as flat claims (entra_userinfo.py).
+            USERINFOURL = "http://tinyauth-entra:${toString entraBridgePort}/userinfo";
+          }
+          else {
+            AUTHURL = p.authUrl;
+            TOKENURL = p.tokenUrl;
+            USERINFOURL = p.userinfoUrl;
+          };
+        scopes =
+          if p.type == "entra"
+          then ["openid" "profile" "email" "User.Read"] ++ optional p.groupNames "GroupMember.Read.All"
+          else p.scopes;
+        name =
+          if p.buttonName != ""
+          then p.buttonName
+          else if p.type == "entra"
+          then "Microsoft"
+          else id;
       in
-        {
-          "${provider}_NAME" = entra.buttonName;
-          "${provider}_CLIENTID" = entra.clientId;
-          "${provider}_CLIENTSECRET" = entra.clientSecret;
-          "${provider}_AUTHURL" = "${login}/authorize";
-          "${provider}_TOKENURL" = "${login}/token";
-          # Graph user + groups as flat claims (entra_userinfo.py).
-          "${provider}_USERINFOURL" = "http://tinyauth-entra:${toString entraBridgePort}/userinfo";
-          "${provider}_SCOPES" = concatStringsSep "," (
-            ["openid" "profile" "email" "User.Read"]
-            ++ optional entra.groupNames "GroupMember.Read.All"
-          );
-        }
-        // optionalAttrs entra.autoRedirect {
-          TINYAUTH_OAUTH_AUTOREDIRECT = "entra";
+        mapAttrs' (k: v: nameValuePair "${prefix}_${k}" v) (urls
+          // {
+            NAME = name;
+            CLIENTID = p.clientId;
+            CLIENTSECRET = p.clientSecret;
+            SCOPES = concatStringsSep "," scopes;
+          });
+
+      oauthEnv =
+        foldlAttrs (acc: id: p: acc // providerEnv id p) {} providers
+        // optionalAttrs (cfg.oauthAutoRedirect != null) {
+          TINYAUTH_OAUTH_AUTOREDIRECT = cfg.oauthAutoRedirect;
         };
+
+      # Provider IDs become env var segments and callback paths.
+      badProviderIds = filter (id: builtins.match "[a-z0-9]+" id == null) (attrNames cfg.oauth);
+      incompleteProviders = filter (
+        id: let
+          p = providers.${id};
+          required =
+            [p.clientId p.clientSecret]
+            ++ (
+              if p.type == "entra"
+              then [p.tenantId]
+              else [p.authUrl p.tokenUrl p.userinfoUrl]
+            );
+        in
+          any (v: v == "") required
+      ) (attrNames providers);
 
       unknownServiceRefs =
         filter (n: !(elem n knownServiceNames)) referencedServiceNames;
@@ -145,12 +184,23 @@
       config = mkIf cfg.enabled {
         assertions = [
           {
-            assertion = cfg.users != [] || entra.enabled;
-            message = "neo.services.tinyauth: Configure at least one user in 'users', or enable Entra sign-in.";
+            assertion = cfg.users != [] || oauthEnabled;
+            message = "neo.services.tinyauth: Configure at least one user in 'users', or enable an OAuth provider.";
           }
           {
-            assertion = !entra.enabled || all (v: v != "") [entra.tenantId entra.clientId entra.clientSecret];
-            message = "neo.services.tinyauth.entra: tenantId, clientId and clientSecret are required when Entra sign-in is enabled.";
+            assertion = badProviderIds == [];
+            message = "neo.services.tinyauth.oauth: provider IDs must be lowercase letters and digits only: ${concatStringsSep ", " badProviderIds}";
+          }
+          {
+            assertion = incompleteProviders == [];
+            message = ''
+              neo.services.tinyauth.oauth: missing clientId, clientSecret, or the provider URLs (generic) / tenantId (entra)
+              for enabled provider(s): ${concatStringsSep ", " incompleteProviders}
+            '';
+          }
+          {
+            assertion = cfg.oauthAutoRedirect == null || hasAttr cfg.oauthAutoRedirect providers;
+            message = "neo.services.tinyauth.oauthAutoRedirect: '${toString cfg.oauthAutoRedirect}' is not an enabled provider in oauth.";
           }
           {
             assertion = mixedAllowBlockGroups == [];
@@ -195,7 +245,7 @@
             // optionalAttrs cfg.backgroundImage {
               TINYAUTH_UI_BACKGROUNDIMAGE = "https://lipsum.app/random/1920x1080";
             }
-            // optionalAttrs entra.enabled entraEnv
+            // oauthEnv
             // appAclEnvVars;
           volumes = [
             "${config.neo.core.volumes.appdata}/tinyauth:/data"
@@ -203,7 +253,7 @@
           networks = ["internal"];
         };
 
-        virtualisation.oci-containers.containers.tinyauth-entra = mkIf entra.enabled {
+        virtualisation.oci-containers.containers.tinyauth-entra = mkIf entraEnabled {
           image = cfg.containers.tinyauth-entra;
           autoStart = true;
           cmd = ["python3" "/app/entra_userinfo.py"];

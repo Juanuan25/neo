@@ -10,6 +10,17 @@ function neoWidget(name) {
   return NeoWidgets.get(name) || null;
 }
 
+/** ui.visibleWhen "opt" or "opt=value" → [opt, value | undefined]. */
+function splitVisibleWhen(rule) {
+  if (!rule) return [null, undefined];
+  const at = rule.indexOf('=');
+  return at < 0 ? [rule, undefined] : [rule.slice(0, at), rule.slice(at + 1)];
+}
+
+function visibleFor(value, want) {
+  return want === undefined ? !!value : String(value) === want;
+}
+
 function optionForm() {
   const host = {
     values: {},
@@ -398,11 +409,24 @@ function optionForm() {
       return (names || []).filter((n) => n in (this.defaults || {}) && !this.isAtDefault(n)).length;
     },
 
-    /** ui.visibleWhen (resolved to an absolute name in Rust): hide while that bool is false. */
+    /**
+     * ui.visibleWhen (resolved to an absolute name in Rust): "opt" hides while that
+     * bool is false, "opt=value" hides unless it equals value.
+     */
     isFieldVisible(name) {
-      const dep = this.optionsByName[name]?.visibleWhen;
+      const [dep, want] = splitVisibleWhen(this.optionsByName[name]?.visibleWhen);
       if (!dep || !(dep in (this.values || {}))) return true;
-      return !!this.values[dep];
+      return visibleFor(this.values[dep], want);
+    },
+
+    /** Same rule for a field of one attrsOf submodule entry (sibling = last path segment). */
+    isEntryFieldVisible(name, key, rule) {
+      const [dep, want] = splitVisibleWhen(rule);
+      if (!dep) return true;
+      const entry = (this.values || {})[name]?.[key];
+      const sib = dep.split('.').pop();
+      if (!entry || !(sib in entry)) return true;
+      return visibleFor(entry[sib], want);
     },
 
     choiceAt(name, idx) {

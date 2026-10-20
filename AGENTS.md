@@ -85,7 +85,7 @@ The service pane shows **General** (ungrouped options, always open) followed by 
 - `label` — human name (default: humanized last path segment)
 - `summary = true` — value chip on the collapsed group header
 - `choiceLabels = { web = "Internet"; }` — display names for enum / choice values
-- `visibleWhen = "enabled"` — sibling bool; the field hides while it is false
+- `visibleWhen = "enabled"` — sibling bool; the field hides while it is false; `visibleWhen = "type=entra"` — hides unless the sibling equals that value (also inside attrsOf entries)
 
 ### `ui.choices` (multi-select)
 

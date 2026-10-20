@@ -7,10 +7,10 @@
   }:
     with lib;
     with {inherit (lib.neo) mkOption mkEnableOption;}; let
-      entraGroup = lib.neo.ui.mkGroup {
-        id = "entra";
-        label = "Microsoft Entra ID";
-        description = "Sign in with Microsoft work accounts; app access per Entra group";
+      oauthGroup = lib.neo.ui.mkGroup {
+        id = "oauth";
+        label = "Single sign-on";
+        description = "Sign in with OAuth providers (Entra ID, Authentik, …); app access per group";
         icon = "key";
         rank = 50;
       };
@@ -110,30 +110,54 @@
                   choiceEmptyHint = "No enabled apps with tinyauth yet. Enable a service with edge auth first.";
                 };
               };
-              entra = mkOption {
-                type = types.submodule {
+              # OAuth sign-in providers, keyed by provider ID. The ID is used in the
+              # callback URL and in TINYAUTH_OAUTH_PROVIDERS_<ID>_*, so lowercase a-z0-9 only.
+              oauth = mkOption {
+                type = types.attrsOf (types.submodule {
                   options = {
-                    enabled = mkEnableOption "Sign in with Microsoft (Entra ID)" {rank = 0;};
-                    tenantId = mkOption {
+                    enabled = mkOption {
+                      type = types.bool;
+                      default = true;
+                      description = "Show this provider on the tinyauth login page.";
+                      rank = 0;
+                    };
+                    type = mkOption {
+                      type = types.enum ["generic" "entra"];
+                      default = "generic";
+                      description = ''
+                        generic: any OAuth2 / OIDC server (Authentik, Keycloak, Google, …) with explicit URLs.
+                        entra: Microsoft Entra ID; URLs come from the tenant, groups from Microsoft Graph.
+                      '';
+                      rank = 5;
+                      ui.choiceLabels = {
+                        generic = "Generic OAuth / OIDC";
+                        entra = "Microsoft Entra ID";
+                      };
+                    };
+                    buttonName = mkOption {
                       type = types.str;
                       default = "";
-                      description = "Directory (tenant) ID from the Entra app registration overview.";
+                      description = "Label of the sign-in button. Empty: \"Microsoft\" for Entra, else the provider ID.";
                       rank = 10;
-                      ui.visibleWhen = "enabled";
                     };
                     clientId = mkOption {
                       type = types.str;
                       default = "";
-                      description = "Application (client) ID from the Entra app registration overview.";
+                      description = "OAuth client ID.";
                       rank = 20;
-                      ui.visibleWhen = "enabled";
                     };
                     clientSecret = mkOption {
                       type = types.str;
                       default = "";
-                      description = "Client secret value (Certificates & secrets), not the secret ID.";
+                      description = "OAuth client secret (for Entra: the secret value, not the secret ID).";
                       rank = 30;
-                      ui.visibleWhen = "enabled";
+                    };
+                    tenantId = mkOption {
+                      type = types.str;
+                      default = "";
+                      description = "Directory (tenant) ID from the Entra app registration overview.";
+                      rank = 40;
+                      ui.visibleWhen = "type=entra";
                     };
                     groupNames = mkOption {
                       type = types.bool;
@@ -142,43 +166,68 @@
                         Match groups by display name. Requests the GroupMember.Read.All
                         Graph permission (needs admin consent). Off: list groups by object ID.
                       '';
-                      rank = 40;
-                      ui.visibleWhen = "enabled";
-                    };
-                    buttonName = mkOption {
-                      type = types.str;
-                      default = "Microsoft";
-                      description = "Label of the sign-in button on the tinyauth login page.";
                       rank = 50;
-                      ui.visibleWhen = "enabled";
+                      ui.visibleWhen = "type=entra";
                     };
-                    autoRedirect = mkOption {
-                      type = types.bool;
-                      default = false;
-                      description = "Skip the tinyauth login page and go straight to Microsoft.";
-                      rank = 60;
-                      ui.visibleWhen = "enabled";
+                    authUrl = mkOption {
+                      type = types.str;
+                      default = "";
+                      description = "Authorization endpoint, e.g. https://authentik.example.com/application/o/authorize/";
+                      rank = 40;
+                      ui.visibleWhen = "type=generic";
+                    };
+                    tokenUrl = mkOption {
+                      type = types.str;
+                      default = "";
+                      description = "Token endpoint, e.g. https://authentik.example.com/application/o/token/";
+                      rank = 41;
+                      ui.visibleWhen = "type=generic";
+                    };
+                    userinfoUrl = mkOption {
+                      type = types.str;
+                      default = "";
+                      description = ''
+                        Userinfo endpoint, e.g. https://authentik.example.com/application/o/userinfo/.
+                        Must return email, and groups for app access rules.
+                      '';
+                      rank = 42;
+                      ui.visibleWhen = "type=generic";
+                    };
+                    scopes = mkOption {
+                      type = types.listOf types.str;
+                      default = ["openid" "email" "profile"];
+                      description = "Requested scopes. Authentik puts groups in the profile scope.";
+                      rank = 45;
+                      ui.visibleWhen = "type=generic";
                     };
                   };
-                };
+                });
                 default = {};
                 description = ''
-                  Microsoft Entra ID sign-in. Redirect URI for the app registration:
-                  https://<tinyauth subdomain>.<domain>/api/oauth/callback/entra
+                  OAuth sign-in providers, all offered in parallel next to local users.
+                  The name is the provider ID (lowercase letters and digits). Redirect URI to
+                  register at the provider: https://<tinyauth subdomain>.<domain>/api/oauth/callback/<name>
                 '';
                 rank = 50;
-                ui = lib.neo.ui.mkUi {group = entraGroup;};
+                ui = lib.neo.ui.mkUi {group = oauthGroup;};
               };
-              # Entra groups admitted to apps. Keys of groupAccess follow this list.
-              entraGroups = mkOption {
+              oauthAutoRedirect = mkOption {
+                type = types.nullOr types.str;
+                default = null;
+                description = "Provider ID to send users to directly, skipping the tinyauth login page.";
+                rank = 52;
+                ui = lib.neo.ui.mkUi {group = oauthGroup;};
+              };
+              # Groups admitted to apps. Keys of groupAccess follow this list.
+              oauthGroups = mkOption {
                 type = types.listOf types.str;
                 default = [];
                 description = ''
-                  Entra groups (display name, or object ID) whose members may use apps.
-                  Signed-in Microsoft users in none of these groups are denied everywhere.
+                  Groups (from any OAuth provider's groups claim) whose members may use apps.
+                  Entra: display name or object ID. OAuth users in none of these groups are denied everywhere.
                 '';
                 rank = 55;
-                ui = lib.neo.ui.mkUi {group = entraGroup;};
+                ui = lib.neo.ui.mkUi {group = oauthGroup;};
               };
               groupAccess = mkOption {
                 type = types.attrsOf (types.submodule {
@@ -201,14 +250,14 @@
                 });
                 default = {};
                 description = ''
-                  Optional narrowing per Entra group: the apps members of that group may open.
+                  Optional narrowing per OAuth group: the apps members of that group may open.
                   A group without restrictions grants every app behind tinyauth.
                 '';
                 rank = 60;
                 ui = lib.neo.ui.mkUi {
-                  group = entraGroup;
+                  group = oauthGroup;
                   widget = "exclusiveListPair";
-                  keysFrom = lib.neo.ui.mkKeysFrom {option = "entraGroups";};
+                  keysFrom = lib.neo.ui.mkKeysFrom {option = "oauthGroups";};
                   modes = [
                     (lib.neo.ui.mkMode {
                       id = "open";
@@ -242,7 +291,7 @@
                     omitIfEmpty = true;
                   };
                   entryLabel = "Group";
-                  emptyHint = "Add Entra groups above to configure per-group app access.";
+                  emptyHint = "Add OAuth groups above to configure per-group app access.";
                   choiceEmptyHint = "No enabled apps with tinyauth yet. Enable a service with edge auth first.";
                 };
               };
@@ -272,7 +321,7 @@
             // lib.neo.mkContainerDefinitions {
               tinyauth = "ghcr.io/tinyauthapp/tinyauth:v5.2.0";
               # Image option always declared (UI override). The bridge unit is only
-              # created under mkIf entra and listed in systemdUnits when entra is on.
+              # created and listed in systemdUnits while an Entra provider is enabled.
               # docker-updater uses systemdUnits ∩ containers, so this image is not
               # pulled or restarted when the sidecar is disabled.
               tinyauth-entra = "python:3.13-alpine";
@@ -280,12 +329,12 @@
             // {
               # Gate the Entra userinfo bridge unit (and thus docker-updater
               # consumers via systemdUnits ∩ containers) the same way
-              # oci-containers uses mkIf entra.enabled.
+              # oci-containers does: only while an Entra provider is enabled.
               systemdUnits = mkOption {
                 type = types.listOf types.str;
                 default =
                   ["docker-tinyauth"]
-                  ++ optional config.neo.services.tinyauth.entra.enabled "docker-tinyauth-entra";
+                  ++ optional (any (p: p.enabled && p.type == "entra") (attrValues config.neo.services.tinyauth.oauth)) "docker-tinyauth-entra";
                 internal = true;
                 description = "Systemd unit names for tinyauth and, with Entra sign-in, its userinfo bridge.";
               };

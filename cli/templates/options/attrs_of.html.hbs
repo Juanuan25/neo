@@ -35,7 +35,7 @@
 
           <div class="space-y-3">
             {{#each type.elem.fields}}
-              <div class="space-y-1">
+              <div class="space-y-1" x-show="isEntryFieldVisible('{{../name}}', key, '{{visibleWhen}}')">
                 <div class="flex items-center gap-2">
                   <span class="text-xs font-medium text-base-content/70">{{label}}</span>
                   {{#if description}}

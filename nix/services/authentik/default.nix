@@ -40,6 +40,16 @@
         // optionalAttrs (publicUrl != null) {
           AUTHENTIK_WEB__BASE_URL = publicUrl;
         }
+        // optionalAttrs (cfg.email.host != "") {
+          AUTHENTIK_EMAIL__HOST = cfg.email.host;
+          AUTHENTIK_EMAIL__PORT = toString cfg.email.port;
+          AUTHENTIK_EMAIL__USERNAME = cfg.email.username;
+          AUTHENTIK_EMAIL__PASSWORD = cfg.email.password;
+          AUTHENTIK_EMAIL__USE_TLS = boolToString cfg.email.useTls;
+          AUTHENTIK_EMAIL__USE_SSL = boolToString cfg.email.useSsl;
+          AUTHENTIK_EMAIL__TIMEOUT = toString cfg.email.timeout;
+          AUTHENTIK_EMAIL__FROM = cfg.email.from;
+        }
         // optionalAttrs (secretSet cfg.bootstrapEmail) {
           AUTHENTIK_BOOTSTRAP_EMAIL = cfg.bootstrapEmail;
         }
@@ -56,6 +66,10 @@
           {
             assertion = secretSet cfg.dbPassword;
             message = "neo.services.authentik: dbPassword must be set when enabled.";
+          }
+          {
+            assertion = !(cfg.email.useTls && cfg.email.useSsl);
+            message = "neo.services.authentik.email: useTls and useSsl are mutually exclusive.";
           }
           {
             assertion = cfg.containers.authentik == cfg.containers."authentik-worker";

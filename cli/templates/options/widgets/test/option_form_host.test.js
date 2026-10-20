@@ -302,3 +302,26 @@ test('new attrsOf submodule entries keep nullOr fields null', () => {
     grants: [],
   });
 });
+
+test('visibleWhen supports bool and opt=value rules, top level and per attrsOf entry', () => {
+  installGlobals({});
+  loadOptionForm();
+  const form = optionForm();
+  form.optionsByName = {
+    'auth.enabled': {},
+    'auth.publicPaths': { visibleWhen: 'auth.enabled' },
+    'mode': {},
+    'tenant': { visibleWhen: 'mode=entra' },
+  };
+  form.values = { 'auth.enabled': false, mode: 'generic', oauth: { a: { type: 'entra' }, b: {} } };
+  assert.equal(form.isFieldVisible('auth.publicPaths'), false);
+  assert.equal(form.isFieldVisible('tenant'), false);
+  form.values['auth.enabled'] = true;
+  form.values.mode = 'entra';
+  assert.equal(form.isFieldVisible('auth.publicPaths'), true);
+  assert.equal(form.isFieldVisible('tenant'), true);
+  assert.equal(form.isEntryFieldVisible('oauth', 'a', 'type=entra'), true);
+  assert.equal(form.isEntryFieldVisible('oauth', 'a', 'type=generic'), false);
+  assert.equal(form.isEntryFieldVisible('oauth', 'b', 'type=generic'), true);
+  assert.equal(form.isEntryFieldVisible('oauth', 'a', ''), true);
+});

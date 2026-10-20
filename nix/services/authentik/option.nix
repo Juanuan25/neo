@@ -57,6 +57,74 @@
                 '';
                 helper = lib.neo.helpers.randomToken;
               };
+              # SMTP for email stages (magic links, recovery, verification). AUTHENTIK_EMAIL__*.
+              # Authentik only supports password auth for SMTP (no OAuth2).
+              email = mkOption {
+                type = types.submodule {
+                  options = {
+                    host = mkOption {
+                      type = types.str;
+                      default = "";
+                      description = "SMTP server, e.g. smtp.office365.com. Empty: Authentik sends no email.";
+                      rank = 0;
+                    };
+                    port = mkOption {
+                      type = types.port;
+                      default = 587;
+                      description = "SMTP port (587 STARTTLS, 465 implicit TLS, 25 relay).";
+                      rank = 10;
+                    };
+                    username = mkOption {
+                      type = types.str;
+                      default = "";
+                      description = "SMTP login. Empty for an unauthenticated relay (e.g. M365 connector by IP).";
+                      rank = 20;
+                    };
+                    password = mkOption {
+                      type = types.str;
+                      default = "";
+                      description = "SMTP password.";
+                      rank = 30;
+                    };
+                    from = mkOption {
+                      type = types.str;
+                      default = "";
+                      description = "Sender, e.g. Authentik <noreply@example.com>. Must be allowed to send as this address.";
+                      rank = 40;
+                    };
+                    useTls = mkOption {
+                      type = types.bool;
+                      default = true;
+                      description = "STARTTLS (port 587). Mutually exclusive with useSsl.";
+                      rank = 50;
+                    };
+                    useSsl = mkOption {
+                      type = types.bool;
+                      default = false;
+                      description = "Implicit TLS (port 465). Mutually exclusive with useTls.";
+                      rank = 60;
+                    };
+                    timeout = mkOption {
+                      type = types.int;
+                      default = 10;
+                      description = "SMTP connection timeout in seconds.";
+                      rank = 70;
+                    };
+                  };
+                };
+                default = {};
+                description = "Outgoing email (SMTP) for magic links, recovery and verification emails.";
+                rank = 50;
+                ui = lib.neo.ui.mkUi {
+                  group = lib.neo.ui.mkGroup {
+                    id = "email";
+                    label = "Email";
+                    description = "SMTP server Authentik sends magic links and recovery emails through";
+                    icon = "mail";
+                    rank = 40;
+                  };
+                };
+              };
             }
             // lib.neo.mkReverseProxyOptions {
               subdomain = "authentik";
